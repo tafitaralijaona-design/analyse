@@ -5,7 +5,7 @@ from datetime import datetime, date
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import geemap.foliumap as geemap
+import geemap as geemap
 import geopandas as gpd
 from shapely.geometry import shape, Polygon
 import folium
