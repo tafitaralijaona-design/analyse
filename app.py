@@ -3,6 +3,7 @@ import os
 import streamlit as st
 from datetime import datetime, date
 import matplotlib.pyplot as plt
+from google.oauth2 import service_account   # <-- ajouter cette ligne
 import pandas as pd
 import numpy as np
 import geemap as geemap
