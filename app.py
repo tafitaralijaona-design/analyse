@@ -1868,7 +1868,8 @@ def main():
             shapefile_path = 'data/BV_SBV_Lac_Itasy_20mars.shp'
             if os.path.exists(shapefile_path):
                 watershed_data = load_watershed_shapefile(shapefile_path)
-                if all(watershed_data):
+                watershed_fc, watershed_geom, aoi, watershed_gdf = watershed_data
+                if watershed_fc is not None and watershed_geom is not None and aoi is not None and watershed_gdf is not None:
                     st.sidebar.success("✅ Shapefile par défaut chargé")
         except Exception as e:
             st.sidebar.warning(f"⚠️ Erreur shapefile par défaut: {str(e)[:50]}...")
