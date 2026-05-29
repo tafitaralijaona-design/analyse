@@ -1864,17 +1864,17 @@ def main():
     
     watershed_data = None
     if use_default:
-    try:
-        shapefile_path = 'data/BV_SBV_Lac_Itasy_20mars.shp'
-        if os.path.exists(shapefile_path):
-            watershed_data = load_watershed_shapefile(shapefile_path)
-            # Vérifier explicitement que tous les éléments sont non None
-            if all(v is not None for v in watershed_data):
-                st.sidebar.success("✅ Shapefile par défaut chargé")
-            else:
-                st.sidebar.warning("⚠️ Shapefile par défaut invalide")
-    except Exception as e:
-        st.sidebar.warning(f"⚠️ Erreur shapefile par défaut: {str(e)[:50]}...")
+        try:
+            shapefile_path = 'data/BV_SBV_Lac_Itasy_20mars.shp'
+            if os.path.exists(shapefile_path):
+                watershed_data = load_watershed_shapefile(shapefile_path)
+                # Vérifier explicitement que tous les éléments sont non None
+                if all(v is not None for v in watershed_data):
+                    st.sidebar.success("✅ Shapefile par défaut chargé")
+                else:
+                    st.sidebar.warning("⚠️ Shapefile par défaut invalide")
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Erreur shapefile par défaut: {str(e)[:50]}...")
     
     if not watershed_data:
         uploaded_file = st.sidebar.file_uploader("📤 Uploader shapefile", type=['shp', 'zip'])
