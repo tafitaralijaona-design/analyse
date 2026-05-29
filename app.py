@@ -34,13 +34,21 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-# Désactiver le badge "Built with Streamlit"
-hide_streamlit_style = """
+
+# Masquer le bouton "Fullscreen" (et éventuellement le badge si vous ne l'avez pas désactivé via l'interface)
+hide_fullscreen_button = """
     <style>
-    footer {visibility: hidden;}
+        /* Cacher le bouton fullscreen (icône dans le header) */
+        button[title="View fullscreen"] {
+            display: none;
+        }
+        /* Cacher également le pied de page si le badge persiste */
+        footer {
+            visibility: hidden;
+        }
     </style>
 """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+st.markdown(hide_fullscreen_button, unsafe_allow_html=True)
 # ==========================================================
 # CONSTANTES
 # ==========================================================
