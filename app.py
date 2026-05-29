@@ -28,6 +28,7 @@ from branca.element import Template, MacroElement
 # ==========================================================
 # CONFIGURATION
 # ==========================================================
+# Configuration de la page
 st.set_page_config(
     page_title="Analyse Bassin Versant Lac Itasy",
     page_icon="🌿",
@@ -35,20 +36,28 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Masquer le bouton "Fullscreen" (et éventuellement le badge si vous ne l'avez pas désactivé via l'interface)
-hide_fullscreen_button = """
-    <style>
-        /* Cacher le bouton fullscreen (icône dans le header) */
-        button[title="View fullscreen"] {
-            display: none;
-        }
-        /* Cacher également le pied de page si le badge persiste */
-        footer {
-            visibility: hidden;
-        }
-    </style>
+# --- Code CSS pour masquer le badge "Built with Streamlit" et le bouton "Fullscreen" ---
+hide_streamlit_footer = """
+<style>
+    /* Masque le pied de page complet */
+    footer {
+        visibility: hidden;
+    }
+
+    /* Cible et masque spécifiquement le bouton 'Fullscreen' */
+    button[title="View fullscreen"] {
+        display: none;
+    }
+
+    /* Une classe alternative pour le bouton Fullscreen, si le sélecteur ci-dessus ne fonctionne pas */
+    .stActionButton {
+        display: none;
+    }
+</style>
 """
-st.markdown(hide_fullscreen_button, unsafe_allow_html=True)
+
+# Injecte le code HTML/CSS dans l'application
+st.markdown(hide_streamlit_footer, unsafe_allow_html=True)
 # ==========================================================
 # CONSTANTES
 # ==========================================================
