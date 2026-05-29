@@ -127,7 +127,6 @@ def create_temp_shapefile(uploaded_file) -> Optional[str]:
     except Exception as e:
         st.error(f"Erreur création shapefile temporaire: {e}")
         return None
-
 def load_watershed_shapefile(shapefile_path: str) -> Tuple[Optional[Any], Optional[Any], Optional[Any], Optional[gpd.GeoDataFrame]]:
     """Charge le bassin versant depuis un shapefile."""
     try:
