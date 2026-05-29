@@ -33,8 +33,9 @@ st.set_page_config(
     page_title="Analyse Bassin Versant Lac Itasy",
     page_icon="🌿",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
+
 
 # --- Code CSS pour masquer le badge "Built with Streamlit" et le bouton "Fullscreen" ---
 hide_streamlit_footer = """
