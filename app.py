@@ -1,6 +1,21 @@
 import ee
 import os
 import streamlit as st
+
+st.set_page_config(
+    page_title="Analyse Bassin Versant Lac Itasy",
+    page_icon="🌿",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Désactiver le badge "Built with Streamlit"
+hide_streamlit_style = """
+    <style>
+    footer {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 from datetime import datetime, date
 import matplotlib.pyplot as plt
 from google.oauth2 import service_account   # <-- ajouter cette ligne
