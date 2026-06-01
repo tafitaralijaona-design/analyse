@@ -3143,6 +3143,18 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
                         if lavaka_mask is not None:
                             m_lavakas = create_lavakas_map(watershed_gdf, lavaka_mask, lavaka_score)
                             st_folium(m_lavakas, width=800, height=500, returned_objects=[])
+                            
+                            # Légende textuelle sous la carte
+                            st.markdown("""
+                            <div style="background-color:#f0f2f6; padding:10px; border-radius:5px; margin-top:10px;">
+                                <b>📖 Légende de la carte :</b><br>
+                                <span style="background:#0000FF; display:inline-block; width:15px; height:15px; opacity:0.2;"></span> Lac Itasy<br>
+                                <span style="background:#FFFF00; display:inline-block; width:15px; height:15px;"></span> Lavaka – probabilité faible<br>
+                                <span style="background:#FFA500; display:inline-block; width:15px; height:15px;"></span> Lavaka – probabilité modérée<br>
+                                <span style="background:#FF0000; display:inline-block; width:15px; height:15px;"></span> Lavaka – probabilité élevée<br>
+                                <span style="background:#8B0000; display:inline-block; width:15px; height:15px;"></span> Lavaka confirmé
+                            </div>
+                            """, unsafe_allow_html=True)
                         else:
                             st.warning(f"⚠️ Les données Sentinel‑2 pour {map_year}-{map_month:02d} ne permettent pas de générer la carte (nuages ou absence d'image).")
                     except Exception as e:
