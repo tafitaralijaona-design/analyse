@@ -498,6 +498,12 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
             return None, None, 0.0, 0
         
         s2_image = s2_collection.median().clip(watershed_geom)
+        # Dans detect_lavakas, après avoir récupéré s2_image, ajoutez :
+        lake_polygon = ee.Geometry.Polygon(LAKE_ITASY_COORDS)
+        # Créer un masque : 1 = hors lac, 0 = lac
+        lake_mask = lake_polygon.geometry().Not().selfMask()
+        # Appliquer le masque à l'image
+        s2_image = s2_image.updateMask(lake_mask)
         
         # Calcul des indices
         ndti = calculate_ndti(s2_image)
