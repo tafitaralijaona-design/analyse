@@ -251,46 +251,96 @@ def calculate_brightness_index(image: ee.Image) -> ee.Image:
     brightness = image.select(['B2', 'B3', 'B4', 'B8']).reduce(ee.Reducer.mean())
     return brightness.rename('Brightness')
 
-def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.Geometry) -> Tuple[Optional[ee.Image], Optional[ee.Image], float, int]:
+def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.Geometry, scale: int = 30) -> Tuple[Optional[ee.Image], Optional[ee.Image], float, int]:
+    """Détecte les lavakas avec une meilleure gestion des erreurs."""
     try:
         start = ee.Date.fromYMD(year, month, 1)
         end = start.advance(1, 'month')
+        
         s2_collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
                          .filterDate(start, end)
                          .filterBounds(aoi)
                          .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
                          .map(mask_s2_clouds))
-        if s2_collection.size().getInfo() == 0:
-            return None, None, 0.0, 0
+        
+        # Vérification rapide de la présence d'images (évite size().getInfo())
+        count_img = s2_collection.count()
+        count = count_img.reduceRegion(
+            reducer=ee.Reducer.first(),
+            geometry=aoi,
+            scale=1000,
+            bestEffort=True
+        ).get('constant')
+        
+        try:
+            nb_images = count.getInfo()
+            if nb_images is None or nb_images == 0:
+                return None, None, 0.0, 0
+        except:
+            # Fallback : méthode classique mais avec timeout court
+            if s2_collection.size().getInfo() == 0:
+                return None, None, 0.0, 0
+        
+        # Image médiane
         s2_image = s2_collection.median().clip(watershed_geom)
+        
+        # Indices
         ndti = calculate_ndti(s2_image)
         brightness = calculate_brightness_index(s2_image)
         dem = ee.Image('USGS/SRTMGL1_003').clip(watershed_geom)
         slope = ee.Terrain.slope(dem)
         ndvi = calculate_ndvi(s2_image)
+        
+        # Normalisation
         ndti_norm = ndti.clamp(-1, 1)
         brightness_norm = brightness.divide(10000).clamp(0, 1)
         ndvi_norm = ndvi.clamp(-1, 1)
+        
+        # Score
         lavaka_score = (ndti_norm.multiply(0.4)
                         .add(brightness_norm.multiply(0.3))
                         .add(slope.divide(90).multiply(0.3))
                         .subtract(ndvi_norm.multiply(0.5))).rename('lavaka_score')
+        
         lavaka_mask = lavaka_score.gt(0.4).selfMask()
+        
+        # Surface
         area_img = lavaka_mask.multiply(ee.Image.pixelArea())
-        area_result = area_img.reduceRegion(reducer=ee.Reducer.sum(), geometry=watershed_geom, scale=10, maxPixels=1e13, bestEffort=True)
+        area_result = area_img.reduceRegion(
+            reducer=ee.Reducer.sum(),
+            geometry=watershed_geom,
+            scale=scale,
+            maxPixels=1e13,
+            bestEffort=True
+        )
         area_m2 = area_result.get('lavaka_score')
         area_km2 = area_m2.getInfo() / 1e6 if area_m2 else 0.0
-        try:
-            objects = lavaka_mask.connectedPixelCount(20, True)
-            max_count = objects.reduceRegion(reducer=ee.Reducer.max(), geometry=watershed_geom, scale=10, bestEffort=True).get('lavaka_score')
-            num_lavakas = max_count.getInfo() if max_count else 0
-        except:
-            num_pixels = lavaka_mask.reduceRegion(reducer=ee.Reducer.count(), geometry=watershed_geom, scale=10, bestEffort=True).get('lavaka_score')
-            num_pixels_val = num_pixels.getInfo() if num_pixels else 0
-            num_lavakas = max(1, int(num_pixels_val / 100))
+        
+        # Estimation du nombre de lavakas (évite connectedPixelCount)
+        # Surface moyenne estimée d'un lavaka : 500 m² (ajustable)
+        estimated_num = int(area_km2 * 1e6 / 500) if area_km2 > 0 else 0
+        num_lavakas = estimated_num
+        
+        # Optionnel : comptage précis si zone petite
+        if area_km2 < 10 and area_km2 > 0:
+            try:
+                objects = lavaka_mask.connectedPixelCount(20, True)
+                max_count = objects.reduceRegion(
+                    reducer=ee.Reducer.max(),
+                    geometry=watershed_geom,
+                    scale=scale,
+                    bestEffort=True,
+                    maxPixels=1e13
+                ).get('lavaka_score')
+                if max_count:
+                    num_lavakas = max_count.getInfo()
+            except:
+                pass
+        
         return lavaka_mask.clip(watershed_geom), lavaka_score, area_km2, num_lavakas
+        
     except Exception as e:
-        st.error(f"Erreur détection lavakas: {e}")
+        st.warning(f"Erreur détection lavakas {year}-{month}: {str(e)[:100]}")
         return None, None, 0.0, 0
 
 def analyze_lavakas_trend(lavaka_data: pd.DataFrame) -> Optional[Dict]:
@@ -516,6 +566,9 @@ def create_lake_map(mndwi_image: ee.Image, watershed_gdf: gpd.GeoDataFrame, year
 
 def create_lavaka_map(lavaka_score: ee.Image, watershed_gdf: gpd.GeoDataFrame, year: int, month: int) -> folium.Map:
     """Carte interactive des lavakas (probabilité)."""
+    if lavaka_score is None:
+        st.warning("Image lavaka non disponible")
+        return folium.Map(location=[-19.0, 46.8], zoom_start=11)
     try:
         center = [watershed_gdf.geometry.centroid.y.mean(), watershed_gdf.geometry.centroid.x.mean()]
         m = folium.Map(location=center, zoom_start=11, control_scale=True)
@@ -1200,37 +1253,65 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, months_list, years, ndvi_th
     # ANALYSE LAVAKAS
     # ==========================================================
     if analyze_lavakas:
-        current_analysis += 1
-        progress_bar.progress(current_analysis / total_analyses)
-        status_text.text("Détection lavakas...")
-        st.header("🕳️ Détection lavakas")
-        # Limiter aux 2 dernières années pour la carte (optionnel)
-        years_for_lavakas = years[-2:] if len(years) >= 2 else years
-        lavaka_months = [(y,m) for (y,m) in months_list if y in years_for_lavakas]
-        lavaka_rows = []
-        last_lavaka_score = None
-        last_lavaka_date = None
-        for i, (year, month) in enumerate(lavaka_months):
-            progress = (current_analysis - 1 + i/len(lavaka_months)) / total_analyses
+    current_analysis += 1
+    progress_bar.progress(current_analysis / total_analyses)
+    status_text.text("Détection lavakas...")
+    st.header("🕳️ Détection lavakas")
+    
+    lavaka_rows = []
+    last_lavaka_score = None
+    last_lavaka_date = None
+    
+    # Limiter le nombre de mois pour éviter les timeouts (max 24 mois)
+    max_months = min(len(months_list), 24)
+    months_subset = months_list[:max_months]
+    
+    if not months_subset:
+        st.warning("Aucun mois à analyser pour les lavakas")
+    else:
+        for i, (year, month) in enumerate(months_subset):
+            progress = (current_analysis - 1 + i/len(months_subset)) / total_analyses
             progress_bar.progress(min(progress, 1.0))
             status_text.text(f"Détection lavakas {year}-{month:02d}...")
-            lavaka_mask, lavaka_score, area_km2, num_lavakas = detect_lavakas(year, month, watershed_geom, aoi)
+            
+            lavaka_mask, lavaka_score, area_km2, num_lavakas = detect_lavakas(
+                year, month, watershed_geom, aoi, scale=advanced_params.get('scale', 30)
+            )
+            
+            lavaka_rows.append({
+                'year': year, 'month': month,
+                'area_km2': area_km2, 'num_lavakas': num_lavakas
+            })
+            
             if lavaka_score is not None:
                 last_lavaka_score = lavaka_score
                 last_lavaka_date = (year, month)
-            lavaka_rows.append({'year': year, 'month': month, 'area_km2': area_km2, 'num_lavakas': num_lavakas})
+        
         df_lavakas = pd.DataFrame(lavaka_rows)
+        
         if not df_lavakas.empty:
-            fig_lavakas = plot_lavakas_timeseries(df_lavakas, years_for_lavakas)
-            st.plotly_chart(fig_lavakas, use_container_width=True)
+            st.subheader("Résultats des lavakas")
+            st.dataframe(df_lavakas.round(3), use_container_width=True)
+            
+            # Graphique (dernières années présentes)
+            years_present = sorted(df_lavakas['year'].unique())
+            if len(years_present) > 0:
+                fig_lavakas = plot_lavakas_timeseries(df_lavakas, years_present[-3:])
+                st.plotly_chart(fig_lavakas, use_container_width=True)
+            
             csv_lavakas = df_lavakas.to_csv(index=False)
-            st.download_button("📥 Télécharger données lavakas", csv_lavakas, f"lavakas_{years[-2]}_{years[-1]}.csv", "text/csv")
-            if last_lavaka_score is not None:
+            st.download_button("📥 Télécharger données lavakas", csv_lavakas,
+                               f"lavakas_{years[0]}_{years[-1]}.csv", "text/csv")
+            
+            if last_lavaka_score is not None and last_lavaka_date is not None:
                 st.subheader(f"🗺️ Carte des lavakas - {last_lavaka_date[0]}-{last_lavaka_date[1]:02d}")
-                m_lavaka = create_lavaka_map(last_lavaka_score, watershed_gdf, last_lavaka_date[0], last_lavaka_date[1])
-                st_folium(m_lavaka, width=800, height=500, key="lavaka_map")
+                m_lavaka = create_lavaka_map(last_lavaka_score, watershed_gdf,
+                                             last_lavaka_date[0], last_lavaka_date[1])
+                st_folium(m_lavaka, width=800, height=500, key=f"lavaka_map_{last_lavaka_date[0]}_{last_lavaka_date[1]}")
+            else:
+                st.info("Aucune détection de lavakas valide. Carte non générée.")
         else:
-            st.warning("Aucune détection de lavakas")
+            st.warning("Aucune donnée de lavakas n'a pu être calculée.")
     
     # ==========================================================
     # ANALYSE MÉTÉOROLOGIQUE (avec carte des précipitations)
