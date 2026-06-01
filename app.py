@@ -3244,6 +3244,37 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
             - Précision décroissante avec le temps
             - Utiles pour la planification à court terme
             """)
+
+        # --- TABLEAU DE BORD SYNTHÉTIQUE ---
+    # Vérifier si au moins deux analyses ont produit des données
+    analyses_count = 0
+    if analyze_ndvi and df_ndvi is not None and not df_ndvi.empty:
+        analyses_count += 1
+    if analyze_sediment and df_sediment is not None and not df_sediment.empty:
+        analyses_count += 1
+    if analyze_erosion and stats is not None:   # stats existe pour l'état actuel
+        analyses_count += 1
+    if analyze_lake and df_lake is not None and not df_lake.empty:
+        analyses_count += 1
+    if analyze_lavakas and df_lavakas is not None and not df_lavakas.empty:
+        analyses_count += 1
+
+    if analyses_count >= 2:
+        create_comprehensive_dashboard(
+            df_ndvi=df_ndvi,
+            df_sediment=df_sediment,
+            stats=stats,
+            df_lake=df_lake,
+            df_lavakas=df_lavakas,
+            years=years,
+            analyze_ndvi=analyze_ndvi,
+            analyze_sediment=analyze_sediment,
+            analyze_erosion=analyze_erosion,
+            analyze_lake=analyze_lake,
+            analyze_lavakas=analyze_lavakas
+        )
+    else:
+        st.info("ℹ️ Tableau de bord synthétique : besoin d’au moins deux analyses avec données valides.")   
     # ==========================================================
     # FIN DE L'ANALYSE
     # ==========================================================
