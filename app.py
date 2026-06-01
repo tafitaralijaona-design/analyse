@@ -488,7 +488,7 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
         # Géométrie du lac
         lake_geom = ee.Geometry.Polygon(LAKE_ITASY_COORDS)
         # Zone d'étude = bassin versant - lac
-        study_area = watershed_geom.difference(lake_geom)
+        study_area = watershed_geom.difference(lake_geom, ee.ErrorMargin(1))
         
         # Collection Sentinel-2 (sur la zone sans lac)
         s2_collection = (
