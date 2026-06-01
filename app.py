@@ -480,7 +480,7 @@ def calculate_brightness_index(image: ee.Image) -> ee.Image:
     return brightness.rename('Brightness')
 
 def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.Geometry) -> Tuple[Optional[ee.Image], Optional[ee.Image], float, int]:
-    """Détecte les lavakas basé sur une combinaison d'indices."""
+    """Détecte les lavakas basé sur une combinaison d'indices, en excluant le lac."""
     try:
         start = ee.Date.fromYMD(year, month, 1)
         end = start.advance(1, 'month')
@@ -498,12 +498,13 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
             return None, None, 0.0, 0
         
         s2_image = s2_collection.median().clip(watershed_geom)
-        # Dans detect_lavakas, après avoir récupéré s2_image, ajoutez :
-        lake_polygon = ee.Geometry.Polygon(LAKE_ITASY_COORDS)
-        # Créer un masque : 1 = hors lac, 0 = lac
-        lake_mask = lake_polygon.geometry().Not().selfMask()
-        # Appliquer le masque à l'image
-        s2_image = s2_image.updateMask(lake_mask)
+        
+        # --- MASQUER LE LAC POUR ÉVITER LES FAUX POSITIFS ---
+        lake_geom = ee.Geometry.Polygon(LAKE_ITASY_COORDS)
+        # updateMask garde les pixels où le masque est != 0
+        # lake_geom.Not() donne 0 à l'intérieur du lac, 1 à l'extérieur
+        s2_image = s2_image.updateMask(lake_geom.Not())
+        # --- FIN MASQUE ---
         
         # Calcul des indices
         ndti = calculate_ndti(s2_image)
@@ -528,7 +529,7 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
         # Masque final
         lavaka_mask = lavaka_score.gt(0.4).selfMask()
         
-        # Calcul surface
+        # Calcul surface (hors lac, car déjà masqué)
         area_img = lavaka_mask.multiply(ee.Image.pixelArea())
         area_result = area_img.reduceRegion(
             reducer=ee.Reducer.sum(),
