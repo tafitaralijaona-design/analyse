@@ -2179,6 +2179,7 @@ def main():
     # ==========================================================
     st.sidebar.subheader("3. Options d'analyse")
     
+    
     # 3a. ANALYSE VÉGÉTATION ET SÉDIMENTS
     with st.sidebar.expander("🌱 Végétation et sédiments", expanded=True):
         analyze_ndvi = st.checkbox("Analyse végétation (NDVI)", value=True, 
@@ -2245,7 +2246,14 @@ def main():
             else:  # Même que l'analyse
                 meteo_start_year = YEARS_TO_ANALYZE[0]
                 meteo_end_year = YEARS_TO_ANALYZE[-1]
+
+    with st.sidebar.expander("🗺️ Cartes supplémentaires", expanded=False):
+    show_lavakas_map = st.checkbox("Afficher carte des lavakas", value=True)
+    show_temp_map = st.checkbox("Afficher carte température (moyenne annuelle)", value=False)
+    show_precip_map = st.checkbox("Afficher carte précipitations (cumul annuel)", value=False)
     
+    if show_temp_map or show_precip_map:
+        map_year = st.selectbox("Année pour les cartes", years_options, index=len(years_options)-1)
     # ==========================================================
     # 4. PARAMÈTRES AVANCÉS (OPTIONNEL)
     # ==========================================================
