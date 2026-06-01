@@ -3001,10 +3001,14 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
             
             # Téléchargement
             csv_lavakas = df_lavakas.to_csv(index=False)
+            if len(years) >= 2:
+                file_name = f"lavakas_{years[-2]}_{years[-1]}.csv"
+            else:
+                file_name = f"lavakas_{years[0]}.csv"
             st.download_button(
                 "📥 Télécharger données lavakas", 
                 csv_lavakas, 
-                f"lavakas_{years[-2]}_{years[-1]}.csv", 
+                file_name, 
                 "text/csv"
             )
     
