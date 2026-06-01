@@ -2179,7 +2179,6 @@ def main():
     # ==========================================================
     st.sidebar.subheader("3. Options d'analyse")
     
-    
     # 3a. ANALYSE VÉGÉTATION ET SÉDIMENTS
     with st.sidebar.expander("🌱 Végétation et sédiments", expanded=True):
         analyze_ndvi = st.checkbox("Analyse végétation (NDVI)", value=True, 
@@ -2246,14 +2245,25 @@ def main():
             else:  # Même que l'analyse
                 meteo_start_year = YEARS_TO_ANALYZE[0]
                 meteo_end_year = YEARS_TO_ANALYZE[-1]
-
-    with st.sidebar.expander("🗺️ Cartes supplémentaires", expanded=False):
-    show_lavakas_map = st.checkbox("Afficher carte des lavakas", value=True)
-    show_temp_map = st.checkbox("Afficher carte température (moyenne annuelle)", value=False)
-    show_precip_map = st.checkbox("Afficher carte précipitations (cumul annuel)", value=False)
+        else:
+            # Valeurs par défaut pour éviter les erreurs de référence si la météo n'est pas activée
+            meteo_range = "Même que l'analyse"
+            meteo_start_year = YEARS_TO_ANALYZE[0]
+            meteo_end_year = YEARS_TO_ANALYZE[-1]
     
-    if show_temp_map or show_precip_map:
-        map_year = st.selectbox("Année pour les cartes", years_options, index=len(years_options)-1)
+    # ==========================================================
+    # 3e. CARTES SUPPLÉMENTAIRES (NOUVEAU)
+    # ==========================================================
+    with st.sidebar.expander("🗺️ Cartes supplémentaires", expanded=False):
+        show_lavakas_map = st.checkbox("Afficher carte des lavakas", value=True)
+        show_temp_map = st.checkbox("Afficher carte température (moyenne annuelle)", value=False)
+        show_precip_map = st.checkbox("Afficher carte précipitations (cumul annuel)", value=False)
+        
+        if show_temp_map or show_precip_map:
+            map_year = st.selectbox("Année pour les cartes climatiques", years_options, index=len(years_options)-1)
+        else:
+            map_year = current_year
+    
     # ==========================================================
     # 4. PARAMÈTRES AVANCÉS (OPTIONNEL)
     # ==========================================================
@@ -2316,6 +2326,10 @@ def main():
         recap_text.append("• 🌋 Lavakas")
     if analyze_meteo:
         recap_text.append(f"• 🌤️ Météo ({meteo_start_year}-{meteo_end_year})")
+    if show_temp_map:
+        recap_text.append(f"• 🌡️ Carte température ({map_year})")
+    if show_precip_map:
+        recap_text.append(f"• 🌧️ Carte précipitations ({map_year})")
     
     if recap_text:
         st.sidebar.markdown("\n".join(recap_text))
@@ -2326,6 +2340,12 @@ def main():
         estimated_time *= 1.5
     
     st.sidebar.info(f"⏱️ Estimation: {estimated_time} min")
+    
+    # Stocker les choix des cartes dans session_state pour les récupérer dans run_analysis
+    st.session_state.show_lavakas_map = show_lavakas_map
+    st.session_state.show_temp_map = show_temp_map
+    st.session_state.show_precip_map = show_precip_map
+    st.session_state.map_year = map_year
     
     # Bouton de lancement
     if st.sidebar.button("🚀 Lancer l'analyse complète", type="primary", use_container_width=True):
@@ -2356,21 +2376,21 @@ def main():
         
         # Lancer l'analyse avec tous les paramètres
         run_analysis(
-        watershed_geom=watershed_geom,
-        aoi=aoi,
-        watershed_gdf=watershed_gdf,
-        years=YEARS_TO_ANALYZE,
-        ndvi_threshold=NDVI_THRESHOLD,
-        analyze_ndvi=analyze_ndvi,
-        analyze_sediment=analyze_sediment,
-        analyze_erosion=analyze_erosion_zones,
-        analyze_lake=analyze_lake,           # ← AJOUTER ICI
-        analyze_lavakas=analyze_lavakas,     # ← AJOUTER ICI
-        analyze_meteo=analyze_meteo,         # ← AJOUTER ICI
-        meteo_params=meteo_params,
-        erosion_params=erosion_params,       # ← DÉPLACÉ APRÈS analyze_meteo
-        advanced_params=advanced_params
-)
+            watershed_geom=watershed_geom,
+            aoi=aoi,
+            watershed_gdf=watershed_gdf,
+            years=YEARS_TO_ANALYZE,
+            ndvi_threshold=NDVI_THRESHOLD,
+            analyze_ndvi=analyze_ndvi,
+            analyze_sediment=analyze_sediment,
+            analyze_erosion=analyze_erosion_zones,
+            analyze_lake=analyze_lake,
+            analyze_lavakas=analyze_lavakas,
+            analyze_meteo=analyze_meteo,
+            meteo_params=meteo_params,
+            erosion_params=erosion_params,
+            advanced_params=advanced_params
+        )
     else:
         # Afficher la page d'accueil
         show_welcome_page()
@@ -2495,13 +2515,14 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
             fig_sed = plot_sediment_timeseries(df_sediment, years)
             st.plotly_chart(fig_sed, use_container_width=True)
 
-    # ==========================================================
-    # ANALYSE ÉROSION (version complète avec état actuel et temporel)
+        # ==========================================================
+    # ANALYSE ÉROSION (VERSION COMPLÈTE)
     # ==========================================================
     if analyze_erosion:
         current_analysis += 1
         progress_bar.progress(current_analysis / total_analyses)
-
+        
+        # VÉRIFIER LES PARAMÈTRES D'ÉROSION
         is_temporal_analysis = False
         if erosion_params:
             is_temporal_analysis = erosion_params.get('is_temporal', False)
@@ -2509,132 +2530,525 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
         else:
             analysis_type_name = "État actuel"
             is_temporal_analysis = False
-
+        
+        # ======================================================
+        # OPTION 1: ANALYSE TEMPORELLE (ÉVOLUTION)
+        # ======================================================
         if is_temporal_analysis:
-            # ---------- ANALYSE TEMPORELLE (évolution) ----------
             status_text.text("📈 Analyse évolution temporelle de l'érosion...")
+            
             st.header("📈 Évolution Temporelle des Zones d'Érosion")
             st.info("Cette analyse montre comment les surfaces érodées ont évolué au fil du temps.")
-
+            
+            # Vérifier si la fonction calculate_monthly_erosion existe
+            try:
+                calculate_monthly_erosion
+            except NameError:
+                st.error("""
+                ❌ **Fonction manquante**
+                
+                La fonction `calculate_monthly_erosion` n'est pas définie.
+                Veuillez l'ajouter dans la section des fonctions d'analyse.
+                """)
+                st.code("""
+                # À ajouter dans vos fonctions d'analyse :
+                def calculate_monthly_erosion(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.Geometry) -> Dict[str, float]:
+                    \"\"\"Calcule les surfaces d'érosion pour un mois spécifique.\"\"\"
+                    # Votre code ici...
+                """)
+                return
+            
             with st.spinner("Calcul de l'évolution de l'érosion sur plusieurs années..."):
                 erosion_rows = []
+                
+                # Utiliser la fonction utilitaire pour générer les mois à traiter
                 months_to_process = get_months_to_process(years, datetime.now().year, datetime.now().month)
                 total_months = len(months_to_process)
-
+                
+                # Barre de progression détaillée
                 progress_text = st.empty()
                 erosion_progress = st.progress(0)
-
+                
+                if total_months == 0:
+                    st.warning("⚠️ Aucun mois à analyser. Vérifiez les années sélectionnées.")
+                    return
+                
                 for i, (year, month) in enumerate(months_to_process, 1):
+                    # Mise à jour de la progression
                     progress_percent = i / total_months
                     erosion_progress.progress(progress_percent)
                     progress_text.text(f"Traitement érosion {year}-{month:02d} ({i}/{total_months})...")
-
+                    
+                    # Calculer l'érosion pour ce mois
                     try:
                         erosion_data = calculate_monthly_erosion(year, month, watershed_geom, aoi)
                         erosion_rows.append(erosion_data)
+                        
+                        # Mise à jour de la progression globale
                         overall_progress = (current_analysis - 1 + progress_percent) / total_analyses
                         progress_bar.progress(min(overall_progress, 1.0))
+                        
                     except Exception as e:
                         st.warning(f"⚠️ Erreur pour {year}-{month}: {str(e)[:100]}...")
-                        erosion_rows.append({'year': year, 'month': month,
-                                             'low_erosion_km2': None, 'moderate_erosion_km2': None,
-                                             'high_erosion_km2': None, 'total_erosion_km2': None})
-
+                        # Ajouter des valeurs nulles pour maintenir la structure
+                        erosion_rows.append({
+                            'year': year,
+                            'month': month,
+                            'low_erosion_km2': None,
+                            'moderate_erosion_km2': None,
+                            'high_erosion_km2': None,
+                            'total_erosion_km2': None
+                        })
+                
+                # Nettoyer la progression détaillée
                 progress_text.empty()
                 erosion_progress.empty()
+                
+                # Créer le DataFrame
                 df_erosion = pd.DataFrame(erosion_rows)
-
+                
+                # ======================================================
+                # AFFICHAGE DES RÉSULTATS TEMPORELS
+                # ======================================================
                 if not df_erosion.empty:
+                    # Filtrer les lignes avec données valides
                     df_valid = df_erosion.dropna(subset=['total_erosion_km2'])
+                    
                     if len(df_valid) > 0:
-                        # (affichage complet des résultats temporels – reprenez votre code original ici)
-                        # ... (je ne réécris pas les 100 lignes, mais vous les avez déjà)
+                        # 1. RÉSUMÉ STATISTIQUE
                         st.subheader("📊 Résumé statistique")
+                        
                         col1, col2, col3, col4 = st.columns(4)
+                        
                         with col1:
-                            st.metric("Érosion forte moyenne", f"{df_valid['high_erosion_km2'].mean():.1f} km²")
+                            avg_high = df_valid['high_erosion_km2'].mean()
+                            st.metric("Érosion forte moyenne", f"{avg_high:.1f} km²")
+                        
                         with col2:
                             max_high = df_valid['high_erosion_km2'].max()
                             max_date = df_valid.loc[df_valid['high_erosion_km2'].idxmax(), ['year', 'month']]
-                            st.metric("Maximum érosion forte", f"{max_high:.1f} km²",
-                                      f"{int(max_date['month'])}/{int(max_date['year'])}")
+                            st.metric("Maximum érosion forte", f"{max_high:.1f} km²", 
+                                     f"{int(max_date['month'])}/{int(max_date['year'])}")
+                        
                         with col3:
-                            st.metric("Période analysée", f"{len(df_valid['year'].unique())} an(s)",
-                                      f"{len(df_valid)} mois")
+                            total_months_analyzed = len(df_valid)
+                            years_analyzed = len(df_valid['year'].unique())
+                            st.metric("Période analysée", f"{years_analyzed} an(s)", 
+                                     f"{total_months_analyzed} mois")
+                        
                         with col4:
-                            change = ((df_valid['high_erosion_km2'].iloc[-1] - df_valid['high_erosion_km2'].iloc[0]) /
-                                      df_valid['high_erosion_km2'].iloc[0] * 100) if df_valid['high_erosion_km2'].iloc[0] > 0 else 0
-                            st.metric("Tendance globale", "📈 Hausse" if change > 0 else "📉 Baisse", f"{change:.1f}%")
-
-                        # Graphiques (onglets) – à conserver identiques
+                            trend_text = "📈 Hausse" if df_valid['high_erosion_km2'].iloc[-1] > df_valid['high_erosion_km2'].iloc[0] else "📉 Baisse"
+                            change = ((df_valid['high_erosion_km2'].iloc[-1] - df_valid['high_erosion_km2'].iloc[0]) / 
+                                     df_valid['high_erosion_km2'].iloc[0] * 100) if df_valid['high_erosion_km2'].iloc[0] > 0 else 0
+                            st.metric("Tendance globale", trend_text, f"{change:.1f}%")
+                        
+                        # 2. VISUALISATIONS
                         st.subheader("📈 Visualisations")
+                        
+                        # Créer la colonne date pour les graphiques
+                        df_valid['date'] = pd.to_datetime(
+                            df_valid['year'].astype(str) + '-' + 
+                            df_valid['month'].astype(str) + '-01'
+                        )
+                        
+                        # Onglets pour différents graphiques
                         tab1, tab2, tab3, tab4 = st.tabs(["Évolution temporelle", "Comparaison annuelle", "Saisonnalité", "Données brutes"])
+                        
                         with tab1:
-                            df_valid['date'] = pd.to_datetime(df_valid['year'].astype(str) + '-' + df_valid['month'].astype(str) + '-01')
-                            fig_temp = go.Figure()
-                            fig_temp.add_trace(go.Scatter(x=df_valid['date'], y=df_valid['high_erosion_km2'], mode='lines+markers', name='Érosion forte', line=dict(color='red')))
-                            fig_temp.add_trace(go.Scatter(x=df_valid['date'], y=df_valid['moderate_erosion_km2'], mode='lines', name='Érosion modérée', line=dict(color='orange'), fill='tonexty'))
-                            fig_temp.add_trace(go.Scatter(x=df_valid['date'], y=df_valid['low_erosion_km2'], mode='lines', name='Érosion faible', line=dict(color='green'), fill='tonexty'))
-                            fig_temp.update_layout(title='Évolution des surfaces érodées', xaxis_title='Date', yaxis_title='Surface (km²)', height=500, template='plotly_white')
-                            st.plotly_chart(fig_temp, use_container_width=True)
-                        # ... (les autres onglets sont identiques à votre code original)
+                            # Graphique d'évolution temporelle
+                            fig_temporal = go.Figure()
+                            
+                            # Ajouter les trois catégories d'érosion
+                            fig_temporal.add_trace(go.Scatter(
+                                x=df_valid['date'], y=df_valid['high_erosion_km2'],
+                                mode='lines+markers', name='Érosion forte',
+                                line=dict(color='red', width=2),
+                                marker=dict(size=4)
+                            ))
+                            
+                            fig_temporal.add_trace(go.Scatter(
+                                x=df_valid['date'], y=df_valid['moderate_erosion_km2'],
+                                mode='lines', name='Érosion modérée',
+                                line=dict(color='orange', width=1.5),
+                                fill='tonexty'
+                            ))
+                            
+                            fig_temporal.add_trace(go.Scatter(
+                                x=df_valid['date'], y=df_valid['low_erosion_km2'],
+                                mode='lines', name='Érosion faible',
+                                line=dict(color='green', width=1),
+                                fill='tonexty'
+                            ))
+                            
+                            fig_temporal.update_layout(
+                                title='Évolution des surfaces érodées',
+                                xaxis_title='Date',
+                                yaxis_title='Surface (km²)',
+                                hovermode='x unified',
+                                height=500,
+                                template='plotly_white'
+                            )
+                            
+                            st.plotly_chart(fig_temporal, use_container_width=True)
+                        
+                        with tab2:
+                            # Comparaison annuelle
+                            yearly_comparison = df_valid.groupby('year').agg({
+                                'low_erosion_km2': 'mean',
+                                'moderate_erosion_km2': 'mean',
+                                'high_erosion_km2': 'mean'
+                            }).reset_index()
+                            
+                            fig_yearly = go.Figure()
+                            
+                            fig_yearly.add_trace(go.Bar(
+                                x=yearly_comparison['year'],
+                                y=yearly_comparison['high_erosion_km2'],
+                                name='Érosion forte',
+                                marker_color='red'
+                            ))
+                            
+                            fig_yearly.add_trace(go.Bar(
+                                x=yearly_comparison['year'],
+                                y=yearly_comparison['moderate_erosion_km2'],
+                                name='Érosion modérée',
+                                marker_color='orange'
+                            ))
+                            
+                            fig_yearly.add_trace(go.Bar(
+                                x=yearly_comparison['year'],
+                                y=yearly_comparison['low_erosion_km2'],
+                                name='Érosion faible',
+                                marker_color='green'
+                            ))
+                            
+                            fig_yearly.update_layout(
+                                title='Comparaison annuelle moyenne',
+                                xaxis_title='Année',
+                                yaxis_title='Surface moyenne (km²)',
+                                barmode='stack',
+                                height=500,
+                                template='plotly_white'
+                            )
+                            
+                            st.plotly_chart(fig_yearly, use_container_width=True)
+                        
+                        with tab3:
+                            # Analyse de saisonnalité
+                            monthly_avg = df_valid.groupby('month').agg({
+                                'high_erosion_km2': ['mean', 'std', 'min', 'max']
+                            }).round(2)
+                            monthly_avg.columns = ['Moyenne', 'Écart-type', 'Minimum', 'Maximum']
+                            monthly_avg = monthly_avg.reset_index()
+                            
+                            fig_seasonal = go.Figure()
+                            
+                            fig_seasonal.add_trace(go.Scatter(
+                                x=monthly_avg['month'], y=monthly_avg['Moyenne'],
+                                mode='lines+markers', name='Moyenne',
+                                line=dict(color='blue', width=3),
+                                error_y=dict(
+                                    type='data',
+                                    array=monthly_avg['Écart-type'],
+                                    visible=True
+                                )
+                            ))
+                            
+                            fig_seasonal.add_trace(go.Scatter(
+                                x=monthly_avg['month'], y=monthly_avg['Minimum'],
+                                mode='lines', name='Minimum',
+                                line=dict(color='lightblue', width=1, dash='dash'),
+                                showlegend=True
+                            ))
+                            
+                            fig_seasonal.add_trace(go.Scatter(
+                                x=monthly_avg['month'], y=monthly_avg['Maximum'],
+                                mode='lines', name='Maximum',
+                                line=dict(color='darkblue', width=1, dash='dash'),
+                                showlegend=True
+                            ))
+                            
+                            fig_seasonal.update_layout(
+                                title='Saisonnalité de l\'érosion forte',
+                                xaxis_title='Mois',
+                                yaxis_title='Surface (km²)',
+                                xaxis=dict(
+                                    tickmode='array',
+                                    tickvals=list(range(1, 13)),
+                                    ticktext=MONTHS_FR
+                                ),
+                                height=500,
+                                template='plotly_white'
+                            )
+                            
+                            st.plotly_chart(fig_seasonal, use_container_width=True)
+                        
+                        with tab4:
+                            # Données brutes
+                            st.dataframe(
+                                df_valid.round(2).sort_values(['year', 'month']).style.background_gradient(
+                                    subset=['high_erosion_km2', 'total_erosion_km2'],
+                                    cmap='Reds'
+                                ),
+                                use_container_width=True,
+                                height=400
+                            )
+                        
+                        # 3. TÉLÉCHARGEMENT
+                        st.subheader("💾 Export des données")
+                        
+                        col_dl1, col_dl2 = st.columns(2)
+                        
+                        with col_dl1:
+                            # Données détaillées
+                            csv_detailed = df_valid.to_csv(index=False, encoding='utf-8')
+                            st.download_button(
+                                label="📥 Données détaillées (CSV)",
+                                data=csv_detailed,
+                                file_name=f"erosion_detailed_{years[0]}_{years[-1]}.csv",
+                                mime="text/csv",
+                                help="Contient toutes les données mensuelles"
+                            )
+                        
+                        with col_dl2:
+                            # Données résumées
+                            yearly_summary = df_valid.groupby('year').agg({
+                                'low_erosion_km2': 'mean',
+                                'moderate_erosion_km2': 'mean',
+                                'high_erosion_km2': ['mean', 'max', 'min', 'std']
+                            }).round(2)
+                            yearly_summary.columns = ['Faible_moy', 'Modérée_moy', 'Forte_moy', 'Forte_max', 'Forte_min', 'Forte_std']
+                            csv_summary = yearly_summary.to_csv(encoding='utf-8')
+                            
+                            st.download_button(
+                                label="📊 Résumé annuel (CSV)",
+                                data=csv_summary,
+                                file_name=f"erosion_summary_{years[0]}_{years[-1]}.csv",
+                                mime="text/csv",
+                                help="Statistiques annuelles résumées"
+                            )
+                        
+                    else:
+                        st.warning("⚠️ Aucune donnée valide d'érosion trouvée pour la période sélectionnée.")
+                
+                else:
+                    st.error("❌ Échec de la génération des données d'érosion temporelle.")
+        
+        # ======================================================
+        # OPTION 2: ANALYSE ÉTAT ACTUEL (ORIGINALE)
+        # ======================================================
         else:
-            # ---------- ANALYSE ÉTAT ACTUEL ----------
             status_text.text("⚠️ Analyse zones d'érosion (état actuel)...")
+            
             st.header("⚠️ Zones à Risque d'Érosion - État Actuel")
             st.info("Cette analyse montre la situation actuelle du bassin versant.")
-
+            
             with st.spinner("Calcul des zones d'érosion actuelles..."):
-                erosion_zones, stats = calculate_erosion_zones(watershed_geom)
-
-                if stats['total'] > 0:
-                    percent_low = (stats['low'] / stats['total']) * 100
-                    percent_moderate = (stats['moderate'] / stats['total']) * 100
-                    percent_high = (stats['high'] / stats['total']) * 100
-                else:
-                    percent_low = percent_moderate = percent_high = 0
-
-                st.subheader("📊 Métriques de l'érosion actuelle")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1: st.metric("Surface totale", f"{stats['total']:.1f} km²")
-                with col2: st.metric("Érosion faible", f"{stats['low']:.1f} km²", f"{percent_low:.1f}%")
-                with col3: st.metric("Érosion modérée", f"{stats['moderate']:.1f} km²", f"{percent_moderate:.1f}%")
-                with col4: st.metric("Érosion forte", f"{stats['high']:.1f} km²", f"{percent_high:.1f}%", delta_color="inverse")
-
-                # Graphique circulaire
-                st.subheader("📈 Visualisation")
-                fig_pie, ax = plt.subplots(figsize=(6,6))
-                sizes = [stats['low'], stats['moderate'], stats['high']]
-                colors = ['#4CAF50', '#FFC107', '#F44336']
-                ax.pie(sizes, labels=['Faible', 'Modérée', 'Forte'], colors=colors, autopct='%1.1f%%', startangle=90)
-                ax.set_title('Répartition des zones d\'érosion')
-                st.pyplot(fig_pie)
-                plt.close()
-
-                # Carte
-                st.subheader("🗺️ Carte des zones d'érosion")
-                m_erosion = create_erosion_map(watershed_gdf, erosion_zones)
-                st_folium(m_erosion, width=800, height=500, returned_objects=[])
-
-                # Recommandations (inchangées)
-                st.subheader("💡 Recommandations")
-                if percent_high > 20:
-                    st.error("🔴 ALERTE : FORT RISQUE D'ÉROSION ...")
-                elif percent_high > 10:
-                    st.warning("⚠️ RISQUE MODÉRÉ À ÉLEVÉ ...")
-                else:
-                    st.success("✅ SITUATION SATISFAISANTE ...")
-
-                # Export
-                erosion_summary = pd.DataFrame({
-                    'Type_d_erosion': ['Faible', 'Modérée', 'Forte', 'Total'],
-                    'Surface_km2': [stats['low'], stats['moderate'], stats['high'], stats['total']],
-                    'Pourcentage': [percent_low, percent_moderate, percent_high, 100]
-                })
-                csv_data = erosion_summary.to_csv(index=False)
-                st.download_button("📥 Télécharger le rapport d'érosion", csv_data,
-                                   f"erosion_etat_actuel_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
-
+                try:
+                    erosion_zones, stats = calculate_erosion_zones(watershed_geom)
+                    
+                    # Calcul des pourcentages
+                    if stats['total'] > 0:
+                        percent_low = (stats['low'] / stats['total']) * 100
+                        percent_moderate = (stats['moderate'] / stats['total']) * 100
+                        percent_high = (stats['high'] / stats['total']) * 100
+                    else:
+                        percent_low = percent_moderate = percent_high = 0
+                    
+                    # ======================================================
+                    # AFFICHAGE DES MÉTRIQUES
+                    # ======================================================
+                    st.subheader("📊 Métriques de l'érosion actuelle")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric(
+                            label="Surface totale",
+                            value=f"{stats['total']:.1f} km²",
+                            delta="Bassin versant"
+                        )
+                    
+                    with col2:
+                        st.metric(
+                            label="Érosion faible",
+                            value=f"{stats['low']:.1f} km²",
+                            delta=f"{percent_low:.1f}%",
+                            delta_color="normal"
+                        )
+                    
+                    with col3:
+                        st.metric(
+                            label="Érosion modérée",
+                            value=f"{stats['moderate']:.1f} km²",
+                            delta=f"{percent_moderate:.1f}%",
+                            delta_color="off"
+                        )
+                    
+                    with col4:
+                        st.metric(
+                            label="Érosion forte",
+                            value=f"{stats['high']:.1f} km²",
+                            delta=f"{percent_high:.1f}%",
+                            delta_color="inverse"
+                        )
+                    
+                    # ======================================================
+                    # VISUALISATION
+                    # ======================================================
+                    st.subheader("📈 Visualisation")
+                    
+                    col_viz1, col_viz2 = st.columns([2, 1])
+                    
+                    with col_viz1:
+                        # Graphique circulaire
+                        fig_pie, ax = plt.subplots(figsize=(6, 6))
+                        sizes = [stats['low'], stats['moderate'], stats['high']]
+                        colors = ['#4CAF50', '#FFC107', '#F44336']  # vert, jaune, rouge
+                        labels = ['Faible', 'Modérée', 'Forte']
+                        
+                        wedges, texts, autotexts = ax.pie(
+                            sizes,
+                            labels=labels,
+                            colors=colors,
+                            autopct='%1.1f%%',
+                            startangle=90,
+                            explode=(0.05, 0.05, 0.1)
+                        )
+                        
+                        # Améliorer le texte
+                        for autotext in autotexts:
+                            autotext.set_color('white')
+                            autotext.set_fontweight('bold')
+                            autotext.set_fontsize(10)
+                        
+                        for text in texts:
+                            text.set_fontsize(11)
+                            text.set_fontweight('bold')
+                        
+                        ax.axis('equal')
+                        ax.set_title('Répartition des zones d\'érosion', fontsize=14, fontweight='bold')
+                        
+                        st.pyplot(fig_pie)
+                        plt.close(fig_pie)
+                    
+                    with col_viz2:
+                        # Légende et informations
+                        st.markdown("""
+                        **🎯 Légende :**
+                        
+                        **🟢 Faible érosion**
+                        - Pente < 5°
+                        - Bonne couverture végétale
+                        - Risque minimal
+                        
+                        **🟡 Érosion modérée**
+                        - Pente 5-15°
+                        - Couverture végétale moyenne
+                        - Surveillance requise
+                        
+                        **🔴 Forte érosion**
+                        - Pente ≥ 16°
+                        - Faible couverture végétale
+                        - Intervention urgente
+                        """)
+                    
+                    # ======================================================
+                    # CARTE INTERACTIVE
+                    # ======================================================
+                    st.subheader("🗺️ Carte des zones d'érosion")
+                    
+                    with st.spinner("Génération de la carte..."):
+                        try:
+                            m_erosion = create_erosion_map(watershed_gdf, erosion_zones)
+                            st_folium(
+                                m_erosion,
+                                width=800,
+                                height=500,
+                                returned_objects=[],
+                                key=f"erosion_map_{datetime.now().timestamp()}"
+                            )
+                        except Exception as e:
+                            st.error(f"Erreur lors de la génération de la carte: {str(e)[:100]}")
+                            st.info("Affichage d'une carte simplifiée...")
+                            st.map(watershed_gdf)
+                    
+                    # ======================================================
+                    # RECOMMANDATIONS
+                    # ======================================================
+                    st.subheader("💡 Recommandations")
+                    
+                    if percent_high > 20:
+                        st.error("""
+                        **🔴 ALERTE : FORT RISQUE D'ÉROSION**
+                        
+                        Plus de 20% de la surface présente une érosion forte.
+                        
+                        **Actions prioritaires :**
+                        1. **Replanter immédiatement** les zones fortement érodées
+                        2. **Construire des terrasses** anti-érosives
+                        3. **Interdire le surpâturage** dans ces zones
+                        4. **Surveiller après chaque pluie** importante
+                        5. **Consulter un expert** en gestion des sols
+                        """)
+                    elif percent_high > 10:
+                        st.warning("""
+                        **⚠️ RISQUE MODÉRÉ À ÉLEVÉ**
+                        
+                        Entre 10% et 20% de la surface présente une érosion forte.
+                        
+                        **Actions recommandées :**
+                        1. **Stabiliser** les zones à risque avec végétation
+                        2. **Planter des haies** brise-vent et anti-érosion
+                        3. **Pratiquer l'agriculture** de conservation
+                        4. **Suivre mensuellement** l'évolution
+                        5. **Préparer un plan** d'intervention
+                        """)
+                    else:
+                        st.success("""
+                        **✅ SITUATION SATISFAISANTE**
+                        
+                        Moins de 10% de la surface présente une érosion forte.
+                        
+                        **Actions de maintien :**
+                        1. **Continuer** les bonnes pratiques actuelles
+                        2. **Surveiller** les zones à risque modéré
+                        3. **Prévenir** la déforestation
+                        4. **Maintenir** la biodiversité végétale
+                        5. **Éduquer** sur la conservation des sols
+                        """)
+                    
+                    # ======================================================
+                    # TÉLÉCHARGEMENT
+                    # ======================================================
+                    st.subheader("💾 Export des résultats")
+                    
+                    # Créer un DataFrame pour l'export
+                    erosion_summary = pd.DataFrame({
+                        'Type_d_erosion': ['Faible', 'Modérée', 'Forte', 'Total'],
+                        'Surface_km2': [stats['low'], stats['moderate'], stats['high'], stats['total']],
+                        'Pourcentage': [percent_low, percent_moderate, percent_high, 100]
+                    })
+                    
+                    csv_data = erosion_summary.to_csv(index=False, encoding='utf-8')
+                    
+                    st.download_button(
+                        label="📥 Télécharger le rapport d'érosion",
+                        data=csv_data,
+                        file_name=f"erosion_etat_actuel_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        help="Contient le bilan complet de l'érosion actuelle"
+                    )
+                    
+                except Exception as e:
+                    st.error(f"❌ Erreur lors de l'analyse de l'érosion: {str(e)[:150]}")
+                    st.info("""
+                    **Solutions possibles :**
+                    1. Vérifiez votre connexion Internet
+                    2. Réessayez dans quelques minutes
+                    3. Réduisez la taille de la zone d'étude
+                    4. Contactez le support technique
+                    """)
     # ==========================================================
     # ANALYSE LAC ITASY
     # ==========================================================
