@@ -995,7 +995,7 @@ def create_temperature_map(watershed_geom: ee.Geometry, year: int, month: int = 
         return folium.Map(location=[-19.0, 46.8], zoom_start=11)
 
 def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, lavaka_score: ee.Image = None) -> folium.Map:
-    """Carte interactive des lavakas avec légende incluant le lac."""
+    """Carte interactive des lavakas (sans légende interne)."""
     try:
         lake_coords = LAKE_ITASY_COORDS
         lons = [c[0] for c in lake_coords]
@@ -1006,29 +1006,18 @@ def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, l
 
         m = folium.Map(location=center, zoom_start=12, control_scale=True)
 
-        # Dessiner le lac
+        # Lac
         folium.Polygon(
             locations=[[lat, lon] for lon, lat in lake_coords],
-            color='blue',
-            weight=2,
-            fill=True,
-            fill_color='blue',
-            fill_opacity=0.2,
-            popup='Lac Itasy'
+            color='blue', weight=2, fill=True, fill_color='blue', fill_opacity=0.2, popup='Lac Itasy'
         ).add_to(m)
 
         # Bassin versant
         if watershed_gdf is not None and not watershed_gdf.empty:
             geojson_data = watershed_gdf.__geo_interface__
             folium.GeoJson(
-                geojson_data,
-                name="Bassin Versant",
-                style_function=lambda x: {
-                    'fillColor': '#3186cc',
-                    'color': '#3186cc',
-                    'weight': 2,
-                    'fillOpacity': 0.1
-                }
+                geojson_data, name="Bassin Versant",
+                style_function=lambda x: {'fillColor': '#3186cc', 'color': '#3186cc', 'weight': 2, 'fillOpacity': 0.1}
             ).add_to(m)
 
         # Lavakas
@@ -1038,9 +1027,7 @@ def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, l
             folium.TileLayer(
                 tiles=map_id['tile_fetcher'].url_format,
                 attr='Google Earth Engine',
-                name="Lavakas",
-                overlay=True,
-                control=True
+                name="Lavakas", overlay=True, control=True
             ).add_to(m)
 
         if lavaka_score is not None:
@@ -1048,38 +1035,19 @@ def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, l
             score_id = lavaka_score.getMapId(score_viz)
             folium.TileLayer(
                 tiles=score_id['tile_fetcher'].url_format,
-                attr='GEE',
-                name="Score de probabilité",
-                overlay=True,
-                control=True
+                attr='Google Earth Engine',
+                name="Score", overlay=True, control=True
             ).add_to(m)
 
-        # Fonds de carte
-        folium.TileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', name='OSM').add_to(m)
-        folium.TileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', name='CartoDB Light').add_to(m)
+        # Fonds
+        folium.TileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', name='OSM', attr='© OSM').add_to(m)
+        folium.TileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', name='CartoDB Light', attr='© CartoDB').add_to(m)
+
         folium.LayerControl().add_to(m)
-
-        # Légende enrichie
-        legend_html = """
-        <div style="position: fixed; bottom: 50px; left: 50px; width: 190px; background-color: white; border:2px solid grey; z-index:9999; font-size:12px; padding: 8px;">
-            <p style="margin:0 0 5px 0; text-align:center;"><b>Légende</b></p>
-            <p><i style="background:#0000FF; width:15px; height:15px; display:inline-block; opacity:0.2;"></i> Lac Itasy</p>
-            <p><i style="background:#FFFF00; width:15px; height:15px; display:inline-block;"></i> Lavaka faible</p>
-            <p><i style="background:#FFA500; width:15px; height:15px; display:inline-block;"></i> Lavaka modéré</p>
-            <p><i style="background:#FF0000; width:15px; height:15px; display:inline-block;"></i> Lavaka élevé</p>
-            <p><i style="background:#8B0000; width:15px; height:15px; display:inline-block;"></i> Lavaka confirmé</p>
-        </div>
-        """
-        macro = MacroElement()
-        macro._template = Template(legend_html)
-        m.get_root().add_child(macro)
-
         return m
-
     except Exception as e:
         st.error(f"Erreur carte lavakas: {e}")
-        center = [-19.0, 46.8]
-        return folium.Map(location=center, zoom_start=11)
+        return folium.Map(location=[-19.0, 46.8], zoom_start=11)
         
 def create_erosion_map(watershed_gdf: gpd.GeoDataFrame, erosion_zones: Optional[ee.Image] = None) -> folium.Map:
     """Crée une carte interactive des zones d'érosion centrée sur le Lac Itasy."""
