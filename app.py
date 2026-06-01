@@ -896,6 +896,44 @@ def analyze_lake_surface_trend(surface_data: pd.DataFrame) -> Tuple:
 # ==========================================================
 # FONCTIONS DE VISUALISATION
 # ==========================================================
+def create_precip_map(watershed_geom: ee.Geometry, year: int) -> folium.Map:
+    """Carte des précipitations cumulées annuelles (CHIRPS)"""
+    try:
+        start = ee.Date.fromYMD(year, 1, 1)
+        end = ee.Date.fromYMD(year, 12, 31)
+        
+        chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY') \
+            .filterDate(start, end) \
+            .sum() \
+            .clip(watershed_geom)
+        
+        centroid = watershed_gdf.geometry.centroid
+        center = [centroid.y.mean(), centroid.x.mean()]
+        m = folium.Map(location=center, zoom_start=10, control_scale=True)
+        
+        folium.GeoJson(
+            watershed_gdf.__geo_interface__,
+            name="Bassin Versant",
+            style_function=lambda x: {'fillColor': 'none', 'color': '#3186cc', 'weight': 2}
+        ).add_to(m)
+        
+        viz = {'min': 0, 'max': 1500, 'palette': ['white', 'lightblue', 'blue', 'darkblue']}
+        map_id = chirps.getMapId(viz)
+        folium.TileLayer(
+            tiles=map_id['tile_fetcher'].url_format,
+            attr='CHIRPS',
+            name=f"Précipitations {year} (mm)",
+            overlay=True,
+            control=True
+        ).add_to(m)
+        
+        folium.LayerControl().add_to(m)
+        return m
+        
+    except Exception as e:
+        st.error(f"Erreur carte précipitations: {e}")
+        return folium.Map(location=[-19.0, 46.8], zoom_start=11)
+
 def create_temperature_map(watershed_geom: ee.Geometry, year: int, month: int = None) -> folium.Map:
     """
     Carte de température moyenne sur une période donnée.
