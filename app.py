@@ -2180,6 +2180,14 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
                  analyze_lake, analyze_lavakas, analyze_meteo,  # ← d'abord les arguments SANS valeur par défaut
                  meteo_params=None, erosion_params=None, advanced_params=None):  # ← PUIS les arguments AVEC valeur par défaut
     """Exécute l'analyse complète."""
+    # --- INITIALISATION DES VARIABLES POUR LE TABLEAU DE BORD ---
+    df_ndvi = None
+    df_sediment = None
+    stats = None          # dictionnaire des surfaces d'érosion (état actuel)
+    df_lake = None
+    df_lavakas = None
+    df_meteo = None
+    # ---
     
     progress_bar = st.progress(0)
     status_text = st.empty()
