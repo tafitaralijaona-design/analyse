@@ -1018,27 +1018,27 @@ def analyze_lake_surface_trend(surface_data: pd.DataFrame) -> Tuple:
 # ==========================================================
 # FONCTIONS DE VISUALISATION
 # ==========================================================
-def create_precip_map(watershed_geom: ee.Geometry, year: int) -> folium.Map:
-    """Carte des précipitations cumulées annuelles (CHIRPS)"""
+def create_precip_map(watershed_geom: ee.Geometry, year: int, watershed_gdf: gpd.GeoDataFrame) -> folium.Map:
+    """Carte des précipitations cumulées annuelles (CHIRPS) centrée sur le bassin."""
     try:
         start = ee.Date.fromYMD(year, 1, 1)
         end = ee.Date.fromYMD(year, 12, 31)
-        
+
         chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY') \
             .filterDate(start, end) \
             .sum() \
             .clip(watershed_geom)
-        
+
         centroid = watershed_gdf.geometry.centroid
         center = [centroid.y.mean(), centroid.x.mean()]
         m = folium.Map(location=center, zoom_start=10, control_scale=True)
-        
+
         folium.GeoJson(
             watershed_gdf.__geo_interface__,
             name="Bassin Versant",
             style_function=lambda x: {'fillColor': 'none', 'color': '#3186cc', 'weight': 2}
         ).add_to(m)
-        
+
         viz = {'min': 0, 'max': 1500, 'palette': ['white', 'lightblue', 'blue', 'darkblue']}
         map_id = chirps.getMapId(viz)
         folium.TileLayer(
@@ -1048,21 +1048,17 @@ def create_precip_map(watershed_geom: ee.Geometry, year: int) -> folium.Map:
             overlay=True,
             control=True
         ).add_to(m)
-        
+
         folium.LayerControl().add_to(m)
         return m
-        
+
     except Exception as e:
         st.error(f"Erreur carte précipitations: {e}")
         return folium.Map(location=[-19.0, 46.8], zoom_start=11)
-
-def create_temperature_map(watershed_geom: ee.Geometry, year: int, month: int = None) -> folium.Map:
-    """
-    Carte de température moyenne sur une période donnée.
-    Si month est None, moyenne annuelle ; sinon moyenne mensuelle.
-    """
+        
+def create_temperature_map(watershed_geom: ee.Geometry, year: int, watershed_gdf: gpd.GeoDataFrame, month: int = None) -> folium.Map:
+    """Carte de température moyenne (annuelle ou mensuelle) avec centrage sur le bassin versant."""
     try:
-        # Date de début et fin
         if month is None:
             start = ee.Date.fromYMD(year, 1, 1)
             end = ee.Date.fromYMD(year, 12, 31)
@@ -1071,30 +1067,29 @@ def create_temperature_map(watershed_geom: ee.Geometry, year: int, month: int = 
             start = ee.Date.fromYMD(year, month, 1)
             end = start.advance(1, 'month')
             title = f"Température moyenne {calendar.month_name[month]} {year}"
-        
-        # Collection ERA5-Land (température à 2m)
+
+        # Récupération des données ERA5-Land
         era5 = ee.ImageCollection('ECMWF/ERA5_LAND/HOURLY') \
             .filterDate(start, end) \
             .select('temperature_2m') \
             .mean() \
             .clip(watershed_geom)
-        
-        # Conversion Kelvin -> Celsius
+
         temp_celsius = era5.subtract(273.15).rename('temp_celsius')
-        
-        # Centroid du bassin pour centrer la carte
+
+        # Centre de la carte à partir du GeoDataFrame
         centroid = watershed_gdf.geometry.centroid
         center = [centroid.y.mean(), centroid.x.mean()]
         m = folium.Map(location=center, zoom_start=10, control_scale=True)
-        
-        # Ajout du bassin versant
+
+        # Affichage du bassin versant
         folium.GeoJson(
             watershed_gdf.__geo_interface__,
             name="Bassin Versant",
             style_function=lambda x: {'fillColor': 'none', 'color': '#3186cc', 'weight': 2}
         ).add_to(m)
-        
-        # Visualisation EE
+
+        # Visualisation de la température
         viz = {
             'min': 10,
             'max': 30,
@@ -1108,14 +1103,14 @@ def create_temperature_map(watershed_geom: ee.Geometry, year: int, month: int = 
             overlay=True,
             control=True
         ).add_to(m)
-        
+
         folium.LayerControl().add_to(m)
         return m
-        
+
     except Exception as e:
         st.error(f"Erreur carte température: {e}")
         return folium.Map(location=[-19.0, 46.8], zoom_start=11)
-
+        
 def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, lavaka_score: ee.Image = None) -> folium.Map:
     """Carte interactive des lavakas avec fond en niveaux de gris."""
     try:
@@ -3319,7 +3314,7 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
             with st.spinner("Génération de la carte température..."):
                 m_temp = create_temperature_map(watershed_geom, st.session_state.map_year, watershed_gdf)
                 st_folium(m_temp, width=800, height=500, returned_objects=[])
-
+        
         if st.session_state.get('show_precip_map', False) and st.session_state.get('map_year'):
             st.subheader(f"🌧️ Carte des précipitations cumulées annuelles {st.session_state.map_year}")
             with st.spinner("Génération de la carte précipitations..."):
