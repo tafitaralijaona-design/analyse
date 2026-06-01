@@ -1018,27 +1018,99 @@ def analyze_lake_surface_trend(surface_data: pd.DataFrame) -> Tuple:
 # ==========================================================
 # FONCTIONS DE VISUALISATION
 # ==========================================================
-def create_precip_map(watershed_geom: ee.Geometry, year: int, watershed_gdf: gpd.GeoDataFrame) -> folium.Map:
-    """Carte des précipitations cumulées annuelles (CHIRPS) centrée sur le bassin."""
+def create_temperature_map(watershed_geom: ee.Geometry, year: int, watershed_gdf: gpd.GeoDataFrame, month: int = None) -> folium.Map:
+    """Carte de température centrée sur le lac Itasy."""
     try:
+        # Centre sur le lac
+        lake_coords = LAKE_ITASY_COORDS
+        lons = [c[0] for c in lake_coords]
+        lats = [c[1] for c in lake_coords]
+        center_lon = sum(lons) / len(lons)
+        center_lat = sum(lats) / len(lats)
+        center = [center_lat, center_lon]
+        
+        m = folium.Map(location=center, zoom_start=12, control_scale=True)
+        
+        # Polygone du lac
+        folium.Polygon(
+            locations=[[lat, lon] for lon, lat in lake_coords],
+            color='blue', weight=2, fill=True, fill_color='blue', fill_opacity=0.2,
+            popup='Lac Itasy'
+        ).add_to(m)
+        
+        # Bassin versant
+        folium.GeoJson(
+            watershed_gdf.__geo_interface__,
+            name="Bassin Versant",
+            style_function=lambda x: {'fillColor': '#3186cc', 'color': '#3186cc', 'weight': 2, 'fillOpacity': 0.1}
+        ).add_to(m)
+        
+        # Données ERA5
+        if month is None:
+            start = ee.Date.fromYMD(year, 1, 1)
+            end = ee.Date.fromYMD(year, 12, 31)
+            title = f"Température moyenne annuelle {year}"
+        else:
+            start = ee.Date.fromYMD(year, month, 1)
+            end = start.advance(1, 'month')
+            title = f"Température moyenne {calendar.month_name[month]} {year}"
+        
+        era5 = ee.ImageCollection('ECMWF/ERA5_LAND/HOURLY') \
+            .filterDate(start, end) \
+            .select('temperature_2m') \
+            .mean() \
+            .clip(watershed_geom)
+        
+        temp_celsius = era5.subtract(273.15).rename('temp_celsius')
+        viz = {'min': 10, 'max': 30, 'palette': ['blue', 'lightblue', 'cyan', 'green', 'yellow', 'orange', 'red']}
+        map_id = temp_celsius.getMapId(viz)
+        folium.TileLayer(
+            tiles=map_id['tile_fetcher'].url_format,
+            attr='Google Earth Engine | ERA5-Land',
+            name=title,
+            overlay=True,
+            control=True
+        ).add_to(m)
+        
+        folium.LayerControl().add_to(m)
+        return m
+        
+    except Exception as e:
+        st.error(f"Erreur carte température: {e}")
+        return folium.Map(location=[-19.0, 46.8], zoom_start=11)
+
+
+def create_precip_map(watershed_geom: ee.Geometry, year: int, watershed_gdf: gpd.GeoDataFrame) -> folium.Map:
+    """Carte des précipitations cumulées annuelles centrée sur le lac Itasy."""
+    try:
+        lake_coords = LAKE_ITASY_COORDS
+        lons = [c[0] for c in lake_coords]
+        lats = [c[1] for c in lake_coords]
+        center_lon = sum(lons) / len(lons)
+        center_lat = sum(lats) / len(lats)
+        center = [center_lat, center_lon]
+        
+        m = folium.Map(location=center, zoom_start=12, control_scale=True)
+        
+        folium.Polygon(
+            locations=[[lat, lon] for lon, lat in lake_coords],
+            color='blue', weight=2, fill=True, fill_color='blue', fill_opacity=0.2,
+            popup='Lac Itasy'
+        ).add_to(m)
+        
+        folium.GeoJson(
+            watershed_gdf.__geo_interface__,
+            name="Bassin Versant",
+            style_function=lambda x: {'fillColor': '#3186cc', 'color': '#3186cc', 'weight': 2, 'fillOpacity': 0.1}
+        ).add_to(m)
+        
         start = ee.Date.fromYMD(year, 1, 1)
         end = ee.Date.fromYMD(year, 12, 31)
-
         chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY') \
             .filterDate(start, end) \
             .sum() \
             .clip(watershed_geom)
-
-        centroid = watershed_gdf.geometry.centroid
-        center = [centroid.y.mean(), centroid.x.mean()]
-        m = folium.Map(location=center, zoom_start=10, control_scale=True)
-
-        folium.GeoJson(
-            watershed_gdf.__geo_interface__,
-            name="Bassin Versant",
-            style_function=lambda x: {'fillColor': 'none', 'color': '#3186cc', 'weight': 2}
-        ).add_to(m)
-
+        
         viz = {'min': 0, 'max': 1500, 'palette': ['white', 'lightblue', 'blue', 'darkblue']}
         map_id = chirps.getMapId(viz)
         folium.TileLayer(
@@ -1048,67 +1120,12 @@ def create_precip_map(watershed_geom: ee.Geometry, year: int, watershed_gdf: gpd
             overlay=True,
             control=True
         ).add_to(m)
-
+        
         folium.LayerControl().add_to(m)
         return m
-
+        
     except Exception as e:
         st.error(f"Erreur carte précipitations: {e}")
-        return folium.Map(location=[-19.0, 46.8], zoom_start=11)
-        
-def create_temperature_map(watershed_geom: ee.Geometry, year: int, watershed_gdf: gpd.GeoDataFrame, month: int = None) -> folium.Map:
-    """Carte de température moyenne (annuelle ou mensuelle) avec centrage sur le bassin versant."""
-    try:
-        if month is None:
-            start = ee.Date.fromYMD(year, 1, 1)
-            end = ee.Date.fromYMD(year, 12, 31)
-            title = f"Température moyenne annuelle {year}"
-        else:
-            start = ee.Date.fromYMD(year, month, 1)
-            end = start.advance(1, 'month')
-            title = f"Température moyenne {calendar.month_name[month]} {year}"
-
-        # Récupération des données ERA5-Land
-        era5 = ee.ImageCollection('ECMWF/ERA5_LAND/HOURLY') \
-            .filterDate(start, end) \
-            .select('temperature_2m') \
-            .mean() \
-            .clip(watershed_geom)
-
-        temp_celsius = era5.subtract(273.15).rename('temp_celsius')
-
-        # Centre de la carte à partir du GeoDataFrame
-        centroid = watershed_gdf.geometry.centroid
-        center = [centroid.y.mean(), centroid.x.mean()]
-        m = folium.Map(location=center, zoom_start=10, control_scale=True)
-
-        # Affichage du bassin versant
-        folium.GeoJson(
-            watershed_gdf.__geo_interface__,
-            name="Bassin Versant",
-            style_function=lambda x: {'fillColor': 'none', 'color': '#3186cc', 'weight': 2}
-        ).add_to(m)
-
-        # Visualisation de la température
-        viz = {
-            'min': 10,
-            'max': 30,
-            'palette': ['blue', 'lightblue', 'cyan', 'green', 'yellow', 'orange', 'red']
-        }
-        map_id = temp_celsius.getMapId(viz)
-        folium.TileLayer(
-            tiles=map_id['tile_fetcher'].url_format,
-            attr='Google Earth Engine | ERA5-Land',
-            name=title,
-            overlay=True,
-            control=True
-        ).add_to(m)
-
-        folium.LayerControl().add_to(m)
-        return m
-
-    except Exception as e:
-        st.error(f"Erreur carte température: {e}")
         return folium.Map(location=[-19.0, 46.8], zoom_start=11)
         
 def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, lavaka_score: ee.Image = None) -> folium.Map:
@@ -3309,17 +3326,41 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
                                        f"donnees_meteo_lac_itasy_{meteo_start_year}_{meteo_end_year}.csv", "text/csv")
 
         # --- CARTES CLIMATIQUES SUPPLÉMENTAIRES (selon les options de la sidebar) ---
+        # --- CARTES CLIMATIQUES SUPPLÉMENTAIRES ---
         if st.session_state.get('show_temp_map', False) and st.session_state.get('map_year'):
             st.subheader(f"🌡️ Carte de température moyenne annuelle {st.session_state.map_year}")
             with st.spinner("Génération de la carte température..."):
                 m_temp = create_temperature_map(watershed_geom, st.session_state.map_year, watershed_gdf)
                 st_folium(m_temp, width=800, height=500, returned_objects=[])
+                st.markdown("""
+                <div style="background-color:#f0f2f6; padding:10px; border-radius:5px; margin-top:10px;">
+                    <b>📖 Légende :</b><br>
+                    <span style="background:blue; display:inline-block; width:15px; height:15px;"></span> 10°C<br>
+                    <span style="background:lightblue; display:inline-block; width:15px; height:15px;"></span> ~15°C<br>
+                    <span style="background:cyan; display:inline-block; width:15px; height:15px;"></span> ~20°C<br>
+                    <span style="background:green; display:inline-block; width:15px; height:15px;"></span> ~22°C<br>
+                    <span style="background:yellow; display:inline-block; width:15px; height:15px;"></span> ~25°C<br>
+                    <span style="background:orange; display:inline-block; width:15px; height:15px;"></span> ~27°C<br>
+                    <span style="background:red; display:inline-block; width:15px; height:15px;"></span> 30°C<br>
+                    <i>Température de l'air à 2m (moyenne annuelle)</i>
+                </div>
+                """, unsafe_allow_html=True)
         
         if st.session_state.get('show_precip_map', False) and st.session_state.get('map_year'):
             st.subheader(f"🌧️ Carte des précipitations cumulées annuelles {st.session_state.map_year}")
             with st.spinner("Génération de la carte précipitations..."):
                 m_precip = create_precip_map(watershed_geom, st.session_state.map_year, watershed_gdf)
                 st_folium(m_precip, width=800, height=500, returned_objects=[])
+                st.markdown("""
+                <div style="background-color:#f0f2f6; padding:10px; border-radius:5px; margin-top:10px;">
+                    <b>📖 Légende :</b><br>
+                    <span style="background:white; display:inline-block; width:15px; height:15px;"></span> 0 mm<br>
+                    <span style="background:lightblue; display:inline-block; width:15px; height:15px;"></span> ~500 mm<br>
+                    <span style="background:blue; display:inline-block; width:15px; height:15px;"></span> ~1000 mm<br>
+                    <span style="background:darkblue; display:inline-block; width:15px; height:15px;"></span> 1500+ mm<br>
+                    <i>Précipitations cumulées annuelles (CHIRPS)</i>
+                </div>
+                """, unsafe_allow_html=True)
 
     # ==========================================================
     # TABLEAU DE BORD SYNTHÉTIQUE
