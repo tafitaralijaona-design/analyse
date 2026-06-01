@@ -480,17 +480,15 @@ def calculate_brightness_index(image: ee.Image) -> ee.Image:
     return brightness.rename('Brightness')
 
 def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.Geometry) -> Tuple[Optional[ee.Image], Optional[ee.Image], float, int]:
-    """Détecte les lavakas en excluant le lac Itasy."""
+    """Détecte les lavakas en masquant les pixels d'eau (lac Itasy) par MNDWI."""
     try:
         start = ee.Date.fromYMD(year, month, 1)
         end = start.advance(1, 'month')
         
-        # Géométrie du lac
-        lake_geom = ee.Geometry.Polygon(LAKE_ITASY_COORDS)
-        # Zone d'étude = bassin versant - lac
-        study_area = watershed_geom.difference(lake_geom, ee.ErrorMargin(1))
+        # Zone d'étude : le bassin versant (on ne soustrait pas le lac géométriquement)
+        study_area = watershed_geom
         
-        # Collection Sentinel-2 (sur la zone sans lac)
+        # Collection Sentinel-2
         s2_collection = (
             ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
             .filterDate(start, end)
@@ -504,12 +502,23 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
         
         s2_image = s2_collection.median().clip(study_area)
         
-        # Indices
-        ndti = calculate_ndti(s2_image)
-        brightness = calculate_brightness_index(s2_image)
+        # --- Masque d'eau (lac) ---
+        # Calcul du MNDWI (indice d'eau)
+        mndwi = calculate_mndwi(s2_image)
+        # Seuil pour l'eau : MNDWI > 0.3 (classique)
+        water_mask = mndwi.gt(0.3).selfMask()
+        # On inverse : 1 = terre, 0 = eau
+        land_mask = water_mask.Not().selfMask()
+        # Appliquer le masque terrestre
+        s2_image_land = s2_image.updateMask(land_mask)
+        # --- Fin masque ---
+        
+        # Indices (uniquement sur la terre)
+        ndti = calculate_ndti(s2_image_land)
+        brightness = calculate_brightness_index(s2_image_land)
         dem = ee.Image('USGS/SRTMGL1_003').clip(study_area)
         slope = ee.Terrain.slope(dem)
-        ndvi = calculate_ndvi(s2_image)
+        ndvi = calculate_ndvi(s2_image_land)
         
         # Normalisation
         ndti_norm = ndti.clamp(-1, 1)
@@ -524,9 +533,10 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
             .subtract(ndvi_norm.multiply(0.5))
         ).rename('lavaka_score')
         
+        # Masque final (seuil 0.4)
         lavaka_mask = lavaka_score.gt(0.4).selfMask()
         
-        # Calcul de la surface (hors lac)
+        # Calcul de la surface (sur la zone terrestre, pas sur l'eau)
         area_img = lavaka_mask.multiply(ee.Image.pixelArea())
         area_result = area_img.reduceRegion(
             reducer=ee.Reducer.sum(),
