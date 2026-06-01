@@ -480,21 +480,16 @@ def calculate_brightness_index(image: ee.Image) -> ee.Image:
     return brightness.rename('Brightness')
 
 def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.Geometry) -> Tuple[Optional[ee.Image], Optional[ee.Image], float, int]:
-    """Détecte les lavakas en excluant le lac Itasy par différence géométrique."""
+    """Détecte les lavakas en masquant les surfaces en eau (MNDWI)."""
     try:
         start = ee.Date.fromYMD(year, month, 1)
         end = start.advance(1, 'month')
-        
-        # Géométrie du lac
-        lake_geom = ee.Geometry.Polygon(LAKE_ITASY_COORDS)
-        # Zone d'étude = bassin versant - lac (avec marge d'erreur)
-        study_area = watershed_geom.difference(lake_geom, maxError=30)
         
         # Collection Sentinel-2
         s2_collection = (
             ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
             .filterDate(start, end)
-            .filterBounds(study_area)
+            .filterBounds(watershed_geom)
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
             .map(mask_s2_clouds)
         )
@@ -502,14 +497,25 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
         if s2_collection.size().getInfo() == 0:
             return None, None, 0.0, 0
         
-        s2_image = s2_collection.median().clip(study_area)
+        s2_image = s2_collection.median().clip(watershed_geom)
         
-        # Indices
-        ndti = calculate_ndti(s2_image)
-        brightness = calculate_brightness_index(s2_image)
-        dem = ee.Image('USGS/SRTMGL1_003').clip(study_area)
+        # --- Masque d'eau fiable (MNDWI) ---
+        # Calcul du MNDWI
+        mndwi = calculate_mndwi(s2_image)                     # image flottante [-1, 1]
+        # Seuil > 0.3 pour l'eau (ajustable)
+        water_mask = mndwi.gt(0.3)                            # image binaire (0/1)
+        # Inversion : terre = 1, eau = 0
+        land_mask = water_mask.Not()                          # image binaire (1 = terre)
+        # Application : on masque les pixels d'eau
+        s2_image_land = s2_image.updateMask(land_mask)
+        # --- Fin du masque ---
+        
+        # Calcul des indices (uniquement sur la terre)
+        ndti = calculate_ndti(s2_image_land)
+        brightness = calculate_brightness_index(s2_image_land)
+        dem = ee.Image('USGS/SRTMGL1_003').clip(watershed_geom)
         slope = ee.Terrain.slope(dem)
-        ndvi = calculate_ndvi(s2_image)
+        ndvi = calculate_ndvi(s2_image_land)
         
         # Normalisation
         ndti_norm = ndti.clamp(-1, 1)
@@ -524,13 +530,14 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
             .subtract(ndvi_norm.multiply(0.5))
         ).rename('lavaka_score')
         
+        # Masque final (seuil 0.4)
         lavaka_mask = lavaka_score.gt(0.4).selfMask()
         
-        # Calcul de la surface (sur study_area)
+        # Calcul de la surface (sur tout le bassin, mais les pixels d'eau sont déjà masqués)
         area_img = lavaka_mask.multiply(ee.Image.pixelArea())
         area_result = area_img.reduceRegion(
             reducer=ee.Reducer.sum(),
-            geometry=study_area,
+            geometry=watershed_geom,
             scale=10,
             maxPixels=1e13,
             bestEffort=True
@@ -543,7 +550,7 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
             objects = lavaka_mask.connectedPixelCount(20, True)
             max_count = objects.reduceRegion(
                 reducer=ee.Reducer.max(),
-                geometry=study_area,
+                geometry=watershed_geom,
                 scale=10,
                 bestEffort=True
             ).get('lavaka_score')
@@ -551,14 +558,14 @@ def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.G
         except:
             num_pixels = lavaka_mask.reduceRegion(
                 reducer=ee.Reducer.count(),
-                geometry=study_area,
+                geometry=watershed_geom,
                 scale=10,
                 bestEffort=True
             ).get('lavaka_score')
             num_pixels_val = num_pixels.getInfo() if num_pixels else 0
             num_lavakas = max(1, int(num_pixels_val / 100))
         
-        return lavaka_mask.clip(study_area), lavaka_score, area_km2, num_lavakas
+        return lavaka_mask.clip(watershed_geom), lavaka_score, area_km2, num_lavakas
         
     except Exception as e:
         st.error(f"Erreur détection lavakas: {e}")
