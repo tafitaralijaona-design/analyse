@@ -896,6 +896,100 @@ def analyze_lake_surface_trend(surface_data: pd.DataFrame) -> Tuple:
 # ==========================================================
 # FONCTIONS DE VISUALISATION
 # ==========================================================
+def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, lavaka_score: ee.Image = None) -> folium.Map:
+    """
+    Crée une carte interactive des lavakas.
+    
+    Args:
+        watershed_gdf: GeoDataFrame du bassin versant
+        lavaka_mask: Image EE masque des lavakas (selfMaské)
+        lavaka_score: Optionnel – image du score de probabilité
+    
+    Returns:
+        Carte Folium
+    """
+    try:
+        center = [watershed_gdf.geometry.centroid.y.mean(), watershed_gdf.geometry.centroid.x.mean()]
+        m = folium.Map(location=center, zoom_start=12, control_scale=True)
+        
+        # Bassin versant
+        geojson_data = watershed_gdf.__geo_interface__
+        folium.GeoJson(
+            geojson_data,
+            name="Bassin Versant",
+            style_function=lambda x: {
+                'fillColor': '#3186cc',
+                'color': '#3186cc',
+                'weight': 2,
+                'fillOpacity': 0.1
+            }
+        ).add_to(m)
+        
+        # Masque des lavakas
+        if lavaka_mask is not None:
+            # Palette: du jaune au rouge foncé
+            viz = {'min': 0, 'max': 1, 'palette': ['#FFFF00', '#FFA500', '#FF0000', '#8B0000']}
+            map_id = lavaka_mask.getMapId(viz)
+            folium.TileLayer(
+                tiles=map_id['tile_fetcher'].url_format,
+                attr='Google Earth Engine',
+                name="Lavakas (détection)",
+                overlay=True,
+                control=True
+            ).add_to(m)
+        
+        # Optionnel : superposer le score de probabilité
+        if lavaka_score is not None:
+            score_viz = {'min': 0, 'max': 0.8, 'palette': ['blue', 'cyan', 'yellow', 'red']}
+            score_id = lavaka_score.getMapId(score_viz)
+            folium.TileLayer(
+                tiles=score_id['tile_fetcher'].url_format,
+                attr='GEE',
+                name="Score de probabilité",
+                overlay=True,
+                control=True
+            ).add_to(m)
+        
+        # Fonds de carte
+        folium.TileLayer(
+            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            name='OpenStreetMap',
+            attr='© OpenStreetMap contributors',
+            control=True
+        ).add_to(m)
+        
+        folium.TileLayer(
+            'https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png',
+            name='CartoDB Light',
+            attr='© CartoDB',
+            control=True
+        ).add_to(m)
+        
+        folium.LayerControl().add_to(m)
+        
+        # Légende personnalisée
+        legend_html = """
+        <div style="position: fixed; bottom: 50px; left: 50px; width: 160px; background-color: white; border:2px solid grey; z-index:9999; font-size:14px; padding: 8px;">
+            <p><b>Légende lavakas</b></p>
+            <p><i style="background:#FFFF00; width:15px; height:15px; display:inline-block;"></i> Probabilité faible</p>
+            <p><i style="background:#FFA500; width:15px; height:15px; display:inline-block;"></i> Probabilité modérée</p>
+            <p><i style="background:#FF0000; width:15px; height:15px; display:inline-block;"></i> Probabilité élevée</p>
+            <p><i style="background:#8B0000; width:15px; height:15px; display:inline-block;"></i> Lavaka confirmé</p>
+        </div>
+        """
+        macro = MacroElement()
+        macro._template = Template(legend_html)
+        m.get_root().add_child(macro)
+        
+        return m
+        
+    except Exception as e:
+        st.error(f"Erreur création carte lavakas: {e}")
+        # Carte de repli
+        center = [-19.0, 46.8]
+        m = folium.Map(location=center, zoom_start=11)
+        return m
+        
 def create_erosion_map(watershed_gdf: gpd.GeoDataFrame, erosion_zones: Optional[ee.Image] = None) -> folium.Map:
     """Crée une carte interactive des zones d'érosion."""
     try:
