@@ -479,96 +479,208 @@ def calculate_brightness_index(image: ee.Image) -> ee.Image:
     brightness = image.select(['B2', 'B3', 'B4', 'B8']).reduce(ee.Reducer.mean())
     return brightness.rename('Brightness')
 
-def detect_lavakas(year: int, month: int, watershed_geom: ee.Geometry, aoi: ee.Geometry) -> Tuple[Optional[ee.Image], Optional[ee.Image], float, int]:
-    """Détecte les lavakas en masquant les surfaces en eau (MNDWI)."""
+def calculate_bsi(image):
+    """Bare Soil Index"""
+    return image.expression(
+        '((SWIR + RED) - (NIR + BLUE)) / ((SWIR + RED) + (NIR + BLUE))',
+        {
+            'SWIR': image.select('B11'),
+            'RED': image.select('B4'),
+            'NIR': image.select('B8'),
+            'BLUE': image.select('B2')
+        }
+    ).rename('BSI')
+
+
+def detect_lavakas(
+    year: int,
+    month: int,
+    watershed_geom: ee.Geometry,
+    aoi: ee.Geometry
+):
+
     try:
+
         start = ee.Date.fromYMD(year, month, 1)
         end = start.advance(1, 'month')
-        
-        # Collection Sentinel-2
+
+        # ==========================
+        # Sentinel-2
+        # ==========================
         s2_collection = (
             ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
             .filterDate(start, end)
             .filterBounds(watershed_geom)
-            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
             .map(mask_s2_clouds)
         )
-        
+
         if s2_collection.size().getInfo() == 0:
             return None, None, 0.0, 0
-        
-        s2_image = s2_collection.median().clip(watershed_geom)
-        
-        # --- Masque d'eau fiable (MNDWI) ---
-        # Calcul du MNDWI
-        mndwi = calculate_mndwi(s2_image)                     # image flottante [-1, 1]
-        # Seuil > 0.3 pour l'eau (ajustable)
-        water_mask = mndwi.gt(0.3)                            # image binaire (0/1)
-        # Inversion : terre = 1, eau = 0
-        land_mask = water_mask.Not()                          # image binaire (1 = terre)
-        # Application : on masque les pixels d'eau
-        s2_image_land = s2_image.updateMask(land_mask)
-        # --- Fin du masque ---
-        
-        # Calcul des indices (uniquement sur la terre)
-        ndti = calculate_ndti(s2_image_land)
-        brightness = calculate_brightness_index(s2_image_land)
-        dem = ee.Image('USGS/SRTMGL1_003').clip(watershed_geom)
+
+        s2 = s2_collection.median().clip(watershed_geom)
+
+        # ==========================
+        # Eau (MNDWI)
+        # ==========================
+        mndwi = calculate_mndwi(s2)
+
+        water_mask = mndwi.gt(0.25)
+
+        land_mask = water_mask.Not()
+
+        s2 = s2.updateMask(land_mask)
+
+        # ==========================
+        # DEM
+        # ==========================
+        dem = ee.Image("USGS/SRTMGL1_003").clip(watershed_geom)
+
         slope = ee.Terrain.slope(dem)
-        ndvi = calculate_ndvi(s2_image_land)
-        
+
+        # ==========================
+        # Courbure
+        # ==========================
+        curvature = (
+            dem.convolve(ee.Kernel.laplacian8())
+            .rename("curvature")
+        )
+
+        # ==========================
+        # Indices spectraux
+        # ==========================
+        ndvi = calculate_ndvi(s2)
+
+        ndti = calculate_ndti(s2)
+
+        bsi = calculate_bsi(s2)
+
+        # ==========================
+        # Texture GLCM
+        # ==========================
+        red = s2.select('B4').toUint16()
+
+        texture = red.glcmTexture(size=3)
+
+        contrast = texture.select('B4_contrast')
+
+        # ==========================
         # Normalisation
+        # ==========================
+        slope_norm = slope.divide(90).clamp(0, 1)
+
+        bsi_norm = bsi.clamp(-1, 1)
+
         ndti_norm = ndti.clamp(-1, 1)
-        brightness_norm = brightness.divide(10000).clamp(0, 1)
+
         ndvi_norm = ndvi.clamp(-1, 1)
-        
-        # Score de lavaka
+
+        contrast_norm = contrast.divide(100).clamp(0, 1)
+
+        curvature_norm = (
+            curvature.multiply(-1)
+            .divide(50)
+            .clamp(0, 1)
+        )
+
+        # ==========================
+        # Score Lavaka
+        # ==========================
         lavaka_score = (
-            ndti_norm.multiply(0.4)
-            .add(brightness_norm.multiply(0.3))
-            .add(slope.divide(90).multiply(0.3))
-            .subtract(ndvi_norm.multiply(0.5))
-        ).rename('lavaka_score')
-        
-        # Masque final (seuil 0.4)
-        lavaka_mask = lavaka_score.gt(0.4).selfMask()
-        
-        # Calcul de la surface (sur tout le bassin, mais les pixels d'eau sont déjà masqués)
-        area_img = lavaka_mask.multiply(ee.Image.pixelArea())
-        area_result = area_img.reduceRegion(
+            bsi_norm.multiply(0.30)
+            .add(ndti_norm.multiply(0.20))
+            .add(slope_norm.multiply(0.20))
+            .add(contrast_norm.multiply(0.15))
+            .add(curvature_norm.multiply(0.15))
+            .subtract(ndvi_norm.multiply(0.25))
+        ).rename("lavaka_score")
+
+        # ==========================
+        # Contraintes fortes
+        # ==========================
+        bare_soil_mask = bsi.gt(0.10)
+
+        slope_mask = slope.gt(10)
+
+        vegetation_mask = ndvi.lt(0.35)
+
+        curvature_mask = curvature.lt(-2)
+
+        candidate_mask = (
+            bare_soil_mask
+            .And(slope_mask)
+            .And(vegetation_mask)
+            .And(curvature_mask)
+        )
+
+        # ==========================
+        # Seuil final
+        # ==========================
+        lavaka_mask = (
+            lavaka_score.gt(0.35)
+            .And(candidate_mask)
+            .selfMask()
+        )
+
+        # ==========================
+        # Suppression petits objets
+        # ==========================
+        connected = lavaka_mask.connectedPixelCount(
+            maxSize=200,
+            eightConnected=True
+        )
+
+        lavaka_mask = (
+            lavaka_mask
+            .updateMask(connected.gte(20))
+        )
+
+        # ==========================
+        # Surface totale
+        # ==========================
+        area_img = (
+            lavaka_mask.multiply(
+                ee.Image.pixelArea()
+            )
+        )
+
+        area = area_img.reduceRegion(
             reducer=ee.Reducer.sum(),
             geometry=watershed_geom,
             scale=10,
             maxPixels=1e13,
             bestEffort=True
         )
-        area_m2 = area_result.get('lavaka_score')
-        area_km2 = area_m2.getInfo() / 1e6 if area_m2 else 0.0
-        
-        # Estimation du nombre de lavakas
-        try:
-            objects = lavaka_mask.connectedPixelCount(20, True)
-            max_count = objects.reduceRegion(
-                reducer=ee.Reducer.max(),
-                geometry=watershed_geom,
-                scale=10,
-                bestEffort=True
-            ).get('lavaka_score')
-            num_lavakas = max_count.getInfo() if max_count else 0
-        except:
-            num_pixels = lavaka_mask.reduceRegion(
-                reducer=ee.Reducer.count(),
-                geometry=watershed_geom,
-                scale=10,
-                bestEffort=True
-            ).get('lavaka_score')
-            num_pixels_val = num_pixels.getInfo() if num_pixels else 0
-            num_lavakas = max(1, int(num_pixels_val / 100))
-        
-        return lavaka_mask.clip(watershed_geom), lavaka_score, area_km2, num_lavakas
-        
+
+        area_m2 = area.get('lavaka_score')
+
+        area_km2 = (
+            area_m2.getInfo() / 1e6
+            if area_m2 else 0
+        )
+
+        # ==========================
+        # Comptage des lavakas
+        # ==========================
+        vectors = lavaka_mask.reduceToVectors(
+            geometry=watershed_geom,
+            scale=10,
+            geometryType='polygon',
+            eightConnected=True,
+            maxPixels=1e13
+        )
+
+        num_lavakas = vectors.size().getInfo()
+
+        return (
+            lavaka_mask.clip(watershed_geom),
+            lavaka_score,
+            area_km2,
+            num_lavakas
+        )
+
     except Exception as e:
-        st.error(f"Erreur détection lavakas: {e}")
+        st.error(f"Erreur détection lavakas : {e}")
         return None, None, 0.0, 0
 
 def analyze_lavakas_trend(lavaka_data: pd.DataFrame) -> Optional[Dict]:
