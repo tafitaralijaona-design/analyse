@@ -3421,16 +3421,24 @@ def create_comprehensive_dashboard(df_ndvi, df_sediment, stats, df_lake, df_lava
                                              line=dict(color='red', width=2, dash='dash')), row=3, col=1)
     
     # Graphique 6 : Indicateurs synthétiques (radar ou barres)
+        # Graphique 6 : Indicateurs synthétiques (radar chart)
     if metrics_to_show:
         indicators = pd.DataFrame(metrics_to_show, columns=['Indicateur', 'Valeur', 'Tendance'])
-        if len(indicators) > 2:
-            fig.add_trace(go.Scatterpolar(r=indicators['Valeur'], theta=indicators['Indicateur'],
-                                          fill='toself', name='Indicateurs', line=dict(color='blue')),
-                          row=3, col=2)
-        else:
-            fig.add_trace(go.Bar(y=indicators['Indicateur'], x=indicators['Valeur'], orientation='h',
-                                 marker_color=['green','brown','red','blue','sienna'][:len(indicators)]),
-                          row=3, col=2)
+        # Toujours un radar, même pour 1 ou 2 indicateurs
+        fig.add_trace(
+            go.Scatterpolar(
+                r=indicators['Valeur'].values,
+                theta=indicators['Indicateur'].values,
+                fill='toself',
+                name='Indicateurs',
+                line=dict(color='blue'),
+                opacity=0.6
+            ),
+            row=3, col=2
+        )
+        # Optionnel : améliorer l'affichage des angles si peu d'indicateurs
+        if len(indicators) <= 2:
+            fig.update_polars(angularaxis=dict(dtick=90))  # évite un angle trop serré
     
     # Mise en page finale
     fig.update_layout(height=1200, showlegend=True, template='plotly_white',
