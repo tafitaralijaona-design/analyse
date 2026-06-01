@@ -567,8 +567,8 @@ def create_lake_map(mndwi_image: ee.Image, watershed_gdf: gpd.GeoDataFrame, year
 def create_lavaka_map(lavaka_score: ee.Image, watershed_gdf: gpd.GeoDataFrame, year: int, month: int) -> folium.Map:
     """Carte interactive des lavakas (probabilité)."""
     if lavaka_score is None:
-        st.warning("Image lavaka non disponible")
-        return folium.Map(location=[-19.0, 46.8], zoom_start=11)
+            st.warning("Image lavaka non disponible")
+            return folium.Map(location=[-19.0, 46.8], zoom_start=11)
     try:
         center = [watershed_gdf.geometry.centroid.y.mean(), watershed_gdf.geometry.centroid.x.mean()]
         m = folium.Map(location=center, zoom_start=11, control_scale=True)
