@@ -3344,7 +3344,7 @@ def create_comprehensive_dashboard(df_ndvi, df_sediment, stats, df_lake, df_lava
         specs=[
             [{"type": "scatter"}, {"type": "scatter"}],
             [{"type": "bar"}, {"type": "scatter"}],
-            [{"type": "scatter"}, {"type": "bar"}]
+            [{"type": "scatter"}, {"type": "polar"}]
         ]
     )
     
