@@ -3148,20 +3148,36 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
         if not df_lavakas.empty:
             fig_lavakas = plot_lavakas_timeseries(df_lavakas, years_for_lavakas)
             st.plotly_chart(fig_lavakas, use_container_width=True)
-
+        
             # --- Carte des lavakas (dernier mois) ---
             st.subheader("🗺️ Carte des lavakas (dernier mois disponible)")
             last_valid = df_lavakas.dropna(subset=['area_km2']).iloc[-1]
             last_year = int(last_valid['year'])
             last_month = int(last_valid['month'])
+            
             with st.spinner(f"Génération de la carte pour {last_year}-{last_month:02d}..."):
-                lavaka_mask, lavaka_score, _, _ = detect_lavakas(last_year, last_month, watershed_geom, aoi)
-                if lavaka_mask is not None:
-                    m_lavakas = create_lavakas_map(watershed_gdf, lavaka_mask, lavaka_score)
-                    st_folium(m_lavakas, width=800, height=500, returned_objects=[])
-                else:
-                    st.warning("Impossible de générer la carte des lavakas.")
-
+                try:
+                    lavaka_mask, lavaka_score, _, _ = detect_lavakas(last_year, last_month, watershed_geom, aoi)
+                    
+                    if lavaka_mask is not None:
+                        # Vérifier si le masque contient des pixels (non vide)
+                        # On peut essayer de récupérer la surface pour savoir s'il y a des lavakas
+                        # Mais ce n'est pas obligatoire : la carte s'affichera même vide.
+                        m_lavakas = create_lavakas_map(watershed_gdf, lavaka_mask, lavaka_score)
+                        st_folium(m_lavakas, width=800, height=500, returned_objects=[], key=f"lavakas_map_{last_year}_{last_month}")
+                    else:
+                        st.warning("⚠️ Aucune donnée lavakas détectée pour cette période. Affiche seulement le bassin versant.")
+                        # Afficher quand même une carte du bassin versant
+                        m_lavakas = create_lavakas_map(watershed_gdf, None, None)
+                        st_folium(m_lavakas, width=800, height=500, returned_objects=[])
+                except Exception as e:
+                    st.error(f"❌ Erreur lors de la génération de la carte des lavakas : {str(e)[:150]}")
+                    st.info("Affichage d'une carte de localisation simple.")
+                    # Carte de repli ultra simple
+                    center = [-19.0, 46.8]
+                    m_simple = folium.Map(location=center, zoom_start=11)
+                    st_folium(m_simple, width=800, height=500, returned_objects=[])
+                
             csv_lavakas = df_lavakas.to_csv(index=False)
             st.download_button("📥 Télécharger données lavakas", csv_lavakas,
                                f"lavakas_{years_for_lavakas[0]}_{years_for_lavakas[-1]}.csv", "text/csv")
