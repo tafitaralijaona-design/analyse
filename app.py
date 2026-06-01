@@ -1005,7 +1005,7 @@ def create_temperature_map(watershed_geom: ee.Geometry, year: int, month: int = 
         return folium.Map(location=[-19.0, 46.8], zoom_start=11)
 
 def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, lavaka_score: ee.Image = None) -> folium.Map:
-    """Carte interactive des lavakas (sans légende interne)."""
+    """Carte interactive des lavakas avec fond en niveaux de gris."""
     try:
         lake_coords = LAKE_ITASY_COORDS
         lons = [c[0] for c in lake_coords]
@@ -1049,9 +1049,14 @@ def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, l
                 name="Score", overlay=True, control=True
             ).add_to(m)
 
-        # Fonds
-        folium.TileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', name='OSM', attr='© OSM').add_to(m)
-        folium.TileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', name='CartoDB Light', attr='© CartoDB').add_to(m)
+        # Fonds de carte en niveaux de gris (au lieu d'OSM)
+        folium.TileLayer(
+            'https://stamen-tiles-{s}.a.ssl.fastly.net/toner-lite/{z}/{x}/{y}{r}.png',
+            attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL.',
+            name='Fond gris',
+            overlay=False,
+            control=True
+        ).add_to(m)
 
         folium.LayerControl().add_to(m)
         return m
