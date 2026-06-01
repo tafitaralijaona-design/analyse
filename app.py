@@ -995,22 +995,18 @@ def create_temperature_map(watershed_geom: ee.Geometry, year: int, month: int = 
         return folium.Map(location=[-19.0, 46.8], zoom_start=11)
 
 def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, lavaka_score: ee.Image = None) -> folium.Map:
-    """
-    Crée une carte interactive des lavakas.
-    Retourne une carte centrée sur le Lac Itasy même en cas d'absence de données.
-    """
+    """Carte interactive des lavakas avec légende incluant le lac."""
     try:
-        # Coordonnées du Lac Itasy pour le centrage
         lake_coords = LAKE_ITASY_COORDS
         lons = [c[0] for c in lake_coords]
         lats = [c[1] for c in lake_coords]
         center_lon = sum(lons) / len(lons)
         center_lat = sum(lats) / len(lats)
         center = [center_lat, center_lon]
-        
+
         m = folium.Map(location=center, zoom_start=12, control_scale=True)
-        
-        # Dessiner le lac (repère)
+
+        # Dessiner le lac
         folium.Polygon(
             locations=[[lat, lon] for lon, lat in lake_coords],
             color='blue',
@@ -1020,8 +1016,8 @@ def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, l
             fill_opacity=0.2,
             popup='Lac Itasy'
         ).add_to(m)
-        
-        # Ajouter le bassin versant (toujours présent)
+
+        # Bassin versant
         if watershed_gdf is not None and not watershed_gdf.empty:
             geojson_data = watershed_gdf.__geo_interface__
             folium.GeoJson(
@@ -1034,77 +1030,56 @@ def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, l
                     'fillOpacity': 0.1
                 }
             ).add_to(m)
-        
-        # Ajouter les lavakas seulement si le masque existe
+
+        # Lavakas
         if lavaka_mask is not None:
-            try:
-                viz = {'min': 0, 'max': 1, 'palette': ['#FFFF00', '#FFA500', '#FF0000', '#8B0000']}
-                map_id = lavaka_mask.getMapId(viz)
-                folium.TileLayer(
-                    tiles=map_id['tile_fetcher'].url_format,
-                    attr='Google Earth Engine',
-                    name="Lavakas (détection)",
-                    overlay=True,
-                    control=True
-                ).add_to(m)
-            except Exception as e:
-                st.warning(f"Impossible d'ajouter la couche lavakas : {e}")
-        else:
-            st.info("Aucune donnée lavakas disponible pour cette période. Seul le bassin versant est affiché.")
-        
-        # Ajouter le score si disponible
+            viz = {'min': 0, 'max': 1, 'palette': ['#FFFF00', '#FFA500', '#FF0000', '#8B0000']}
+            map_id = lavaka_mask.getMapId(viz)
+            folium.TileLayer(
+                tiles=map_id['tile_fetcher'].url_format,
+                attr='Google Earth Engine',
+                name="Lavakas",
+                overlay=True,
+                control=True
+            ).add_to(m)
+
         if lavaka_score is not None:
-            try:
-                score_viz = {'min': 0, 'max': 0.8, 'palette': ['blue', 'cyan', 'yellow', 'red']}
-                score_id = lavaka_score.getMapId(score_viz)
-                folium.TileLayer(
-                    tiles=score_id['tile_fetcher'].url_format,
-                    attr='GEE',
-                    name="Score de probabilité",
-                    overlay=True,
-                    control=True
-                ).add_to(m)
-            except Exception as e:
-                st.warning(f"Impossible d'ajouter le score : {e}")
-        
+            score_viz = {'min': 0, 'max': 0.8, 'palette': ['blue', 'cyan', 'yellow', 'red']}
+            score_id = lavaka_score.getMapId(score_viz)
+            folium.TileLayer(
+                tiles=score_id['tile_fetcher'].url_format,
+                attr='GEE',
+                name="Score de probabilité",
+                overlay=True,
+                control=True
+            ).add_to(m)
+
         # Fonds de carte
-        folium.TileLayer(
-            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            name='OpenStreetMap',
-            attr='© OpenStreetMap contributors',
-            control=True
-        ).add_to(m)
-        folium.TileLayer(
-            'https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png',
-            name='CartoDB Light',
-            attr='© CartoDB',
-            control=True
-        ).add_to(m)
-        
+        folium.TileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', name='OSM').add_to(m)
+        folium.TileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', name='CartoDB Light').add_to(m)
         folium.LayerControl().add_to(m)
-        
-        # Légende
+
+        # Légende enrichie
         legend_html = """
-        <div style="position: fixed; bottom: 50px; left: 50px; width: 170px; background-color: white; border:2px solid grey; z-index:9999; font-size:12px; padding: 8px;">
-            <p style="margin:0 0 5px 0; text-align:center;"><b>Légende lavakas</b></p>
-            <p><i style="background:#FFFF00; width:15px; height:15px; display:inline-block;"></i> Probabilité faible</p>
-            <p><i style="background:#FFA500; width:15px; height:15px; display:inline-block;"></i> Probabilité modérée</p>
-            <p><i style="background:#FF0000; width:15px; height:15px; display:inline-block;"></i> Probabilité élevée</p>
+        <div style="position: fixed; bottom: 50px; left: 50px; width: 190px; background-color: white; border:2px solid grey; z-index:9999; font-size:12px; padding: 8px;">
+            <p style="margin:0 0 5px 0; text-align:center;"><b>Légende</b></p>
+            <p><i style="background:#0000FF; width:15px; height:15px; display:inline-block; opacity:0.2;"></i> Lac Itasy</p>
+            <p><i style="background:#FFFF00; width:15px; height:15px; display:inline-block;"></i> Lavaka faible</p>
+            <p><i style="background:#FFA500; width:15px; height:15px; display:inline-block;"></i> Lavaka modéré</p>
+            <p><i style="background:#FF0000; width:15px; height:15px; display:inline-block;"></i> Lavaka élevé</p>
             <p><i style="background:#8B0000; width:15px; height:15px; display:inline-block;"></i> Lavaka confirmé</p>
         </div>
         """
         macro = MacroElement()
         macro._template = Template(legend_html)
         m.get_root().add_child(macro)
-        
+
         return m
-        
+
     except Exception as e:
-        st.error(f"Erreur générale dans create_lavakas_map: {e}")
-        # Carte de repli simple centrée sur le lac
-        m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
-        folium.Marker([center_lat, center_lon], popup="Lac Itasy").add_to(m)
-        return m
+        st.error(f"Erreur carte lavakas: {e}")
+        center = [-19.0, 46.8]
+        return folium.Map(location=center, zoom_start=11)
         
 def create_erosion_map(watershed_gdf: gpd.GeoDataFrame, erosion_zones: Optional[ee.Image] = None) -> folium.Map:
     """Crée une carte interactive des zones d'érosion centrée sur le Lac Itasy."""
