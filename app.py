@@ -1089,14 +1089,33 @@ def create_lavakas_map(watershed_gdf: gpd.GeoDataFrame, lavaka_mask: ee.Image, l
         return m
         
 def create_erosion_map(watershed_gdf: gpd.GeoDataFrame, erosion_zones: Optional[ee.Image] = None) -> folium.Map:
-    """Crée une carte interactive des zones d'érosion."""
+    """Crée une carte interactive des zones d'érosion centrée sur le Lac Itasy."""
     try:
-        center = [watershed_gdf.geometry.centroid.y.mean(), watershed_gdf.geometry.centroid.x.mean()]
-        m = folium.Map(location=center, zoom_start=11, control_scale=True)
+        # Coordonnées du Lac Itasy (format [lon, lat])
+        lake_coords = LAKE_ITASY_COORDS
+        # Calcul du centre
+        lons = [c[0] for c in lake_coords]
+        lats = [c[1] for c in lake_coords]
+        center_lon = sum(lons) / len(lons)
+        center_lat = sum(lats) / len(lats)
+        center = [center_lat, center_lon]  # folium attend [lat, lon]
         
-        # Bassin versant avec style simple
+        # Carte centrée sur le lac avec zoom adapté
+        m = folium.Map(location=center, zoom_start=12, control_scale=True)
+        
+        # Ajouter le contour du lac pour repère
+        folium.Polygon(
+            locations=[[lat, lon] for lon, lat in lake_coords],
+            color='blue',
+            weight=2,
+            fill=True,
+            fill_color='blue',
+            fill_opacity=0.2,
+            popup='Lac Itasy'
+        ).add_to(m)
+        
+        # Bassin versant
         geojson_data = watershed_gdf.__geo_interface__
-        
         folium.GeoJson(
             geojson_data,
             name="Bassin Versant",
@@ -1113,7 +1132,6 @@ def create_erosion_map(watershed_gdf: gpd.GeoDataFrame, erosion_zones: Optional[
             try:
                 erosion_viz = {'min': 0, 'max': 2, 'palette': ['green', 'yellow', 'red']}
                 map_id_dict = erosion_zones.getMapId(erosion_viz)
-                
                 folium.TileLayer(
                     tiles=map_id_dict['tile_fetcher'].url_format,
                     attr='Google Earth Engine',
@@ -1122,16 +1140,15 @@ def create_erosion_map(watershed_gdf: gpd.GeoDataFrame, erosion_zones: Optional[
                     control=True
                 ).add_to(m)
             except Exception as e:
-                st.warning(f"Impossible d'ajouter les zones d'érosion à la carte: {e}")
+                st.warning(f"Impossible d'ajouter les zones d'érosion: {e}")
         
-        # Fond de carte par défaut
+        # Fonds de carte
         folium.TileLayer(
             'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
             name='OpenStreetMap',
             attr='© OpenStreetMap contributors',
             control=True
         ).add_to(m)
-        
         folium.TileLayer(
             'https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png',
             name='CartoDB Light',
@@ -1139,33 +1156,19 @@ def create_erosion_map(watershed_gdf: gpd.GeoDataFrame, erosion_zones: Optional[
             control=True
         ).add_to(m)
         
-        # Contrôle des couches
         folium.LayerControl().add_to(m)
         
-        # Ajouter une légende
+        # Légende
         template = """
         {% macro html(this, kwargs) %}
-        <div style="
-            position: fixed; 
-            bottom: 50px;
-            left: 50px;
-            width: 150px;
-            height: 110px;
-            background-color: white;
-            border:2px solid grey;
-            z-index:9999;
-            font-size:14px;
-            ">
-            
-        <p style="margin: 10px; text-align: center;"><b>Légende</b></p>
-        <p style="margin: 5px;"><i style="background:green; width:15px; height:15px; display:inline-block;"></i> Faible érosion</p>
-        <p style="margin: 5px;"><i style="background:yellow; width:15px; height:15px; display:inline-block;"></i> Érosion modérée</p>
-        <p style="margin: 5px;"><i style="background:red; width:15px; height:15px; display:inline-block;"></i> Forte érosion</p>
-        
+        <div style="position: fixed; bottom: 50px; left: 50px; width: 150px; background-color: white; border:2px solid grey; z-index:9999; font-size:14px; padding: 8px;">
+            <p style="margin: 0 0 5px 0; text-align: center;"><b>Légende</b></p>
+            <p style="margin: 2px;"><i style="background:green; width:15px; height:15px; display:inline-block;"></i> Faible érosion</p>
+            <p style="margin: 2px;"><i style="background:yellow; width:15px; height:15px; display:inline-block;"></i> Érosion modérée</p>
+            <p style="margin: 2px;"><i style="background:red; width:15px; height:15px; display:inline-block;"></i> Forte érosion</p>
         </div>
         {% endmacro %}
         """
-        
         macro = MacroElement()
         macro._template = Template(template)
         m.get_root().add_child(macro)
@@ -1174,9 +1177,8 @@ def create_erosion_map(watershed_gdf: gpd.GeoDataFrame, erosion_zones: Optional[
         
     except Exception as e:
         st.error(f"Erreur création carte érosion: {e}")
-        # Retourner une carte basique en cas d'erreur
-        center = [-19.0, 46.8]  # Coordonnées approximatives du Lac Itasy
-        m = folium.Map(location=center, zoom_start=11)
+        # Carte de repli centrée sur le lac
+        m = folium.Map(location=[-19.0, 46.8], zoom_start=12)
         return m
 
 def plot_ndvi_timeseries(df: pd.DataFrame, years: List[int]) -> go.Figure:
