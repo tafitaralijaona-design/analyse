@@ -1253,19 +1253,19 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, months_list, years, ndvi_th
     # ANALYSE LAVAKAS
     # ==========================================================
     if analyze_lavakas:
-    current_analysis += 1
-    progress_bar.progress(current_analysis / total_analyses)
-    status_text.text("Détection lavakas...")
-    st.header("🕳️ Détection lavakas")
-    
-    lavaka_rows = []
-    last_lavaka_score = None
-    last_lavaka_date = None
-    
-    # Limiter le nombre de mois pour éviter les timeouts (max 24 mois)
-    max_months = min(len(months_list), 24)
-    months_subset = months_list[:max_months]
-    
+        current_analysis += 1
+        progress_bar.progress(current_analysis / total_analyses)
+        status_text.text("Détection lavakas...")
+        st.header("🕳️ Détection lavakas")
+        
+        lavaka_rows = []
+        last_lavaka_score = None
+        last_lavaka_date = None
+        
+        # Limiter le nombre de mois pour éviter les timeouts (max 24 mois)
+        max_months = min(len(months_list), 24)
+        months_subset = months_list[:max_months]
+
     if not months_subset:
         st.warning("Aucun mois à analyser pour les lavakas")
     else:
