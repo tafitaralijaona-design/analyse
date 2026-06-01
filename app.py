@@ -3286,84 +3286,83 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
 # ==========================================================
 # TABLEAU DE BORD SYNTHETIQUE
 # ==========================================================
-def create_comprehensive_dashboard():
-    """Crée un tableau de bord synthétique complet avec toutes les analyses."""
+def create_comprehensive_dashboard(df_ndvi, df_sediment, stats, df_lake, df_lavakas, years,
+                                   analyze_ndvi, analyze_sediment, analyze_erosion,
+                                   analyze_lake, analyze_lavakas):
+    """Tableau de bord synthétique avec les données des analyses sélectionnées."""
     
     st.header("📊 Tableau de bord synthétique - Vue d'ensemble")
     
-    # Liste pour stocker les métriques
+    # Liste pour stocker les métriques (utilisée plus tard)
     metrics_to_show = []
     
-    # 1. MÉTRIQUES PRINCIPALES (en haut)
+    # 1. INDICATEURS CLÉS
     st.subheader("📈 Indicateurs clés")
-    
     cols = st.columns(5)
     
     with cols[0]:
-        if analyze_ndvi and not df_ndvi.empty:
-            avg_ndvi_area = df_ndvi['surface_km2'].mean()
-            ndvi_trend = df_ndvi.groupby('year')['surface_km2'].mean().pct_change().iloc[-1] * 100 if len(df_ndvi['year'].unique()) > 1 else 0
-            st.metric(
-                "Surface végétale moyenne",
-                f"{avg_ndvi_area:.1f} km²",
-                f"{ndvi_trend:+.1f}%" if not pd.isna(ndvi_trend) else "N/A",
-                delta_color="normal" if ndvi_trend >= 0 else "inverse"
-            )
-            metrics_to_show.append(("NDVI", avg_ndvi_area, ndvi_trend))
+        if analyze_ndvi and df_ndvi is not None and not df_ndvi.empty:
+            avg_ndvi = df_ndvi['surface_km2'].mean()
+            # Tendance annuelle (si plusieurs années)
+            yearly_ndvi = df_ndvi.groupby('year')['surface_km2'].mean()
+            if len(yearly_ndvi) > 1:
+                trend = (yearly_ndvi.iloc[-1] - yearly_ndvi.iloc[0]) / yearly_ndvi.iloc[0] * 100
+            else:
+                trend = 0
+            st.metric("Surface végétale moyenne", f"{avg_ndvi:.1f} km²", f"{trend:+.1f}%",
+                      delta_color="normal" if trend >= 0 else "inverse")
+            metrics_to_show.append(("NDVI", avg_ndvi, trend))
     
     with cols[1]:
-        if analyze_sediment and not df_sediment.empty:
-            avg_sediment = df_sediment['sediment_index'].mean()
-            sed_trend = df_sediment.groupby('year')['sediment_index'].mean().pct_change().iloc[-1] * 100 if len(df_sediment['year'].unique()) > 1 else 0
-            st.metric(
-                "Indice sédimentaire moyen",
-                f"{avg_sediment:.3f}",
-                f"{sed_trend:+.1f}%" if not pd.isna(sed_trend) else "N/A",
-                delta_color="inverse" if sed_trend >= 0 else "normal"
-            )
-            metrics_to_show.append(("Sédiments", avg_sediment, sed_trend))
+        if analyze_sediment and df_sediment is not None and not df_sediment.empty:
+            avg_sed = df_sediment['sediment_index'].mean()
+            yearly_sed = df_sediment.groupby('year')['sediment_index'].mean()
+            if len(yearly_sed) > 1:
+                trend = (yearly_sed.iloc[-1] - yearly_sed.iloc[0]) / yearly_sed.iloc[0] * 100
+            else:
+                trend = 0
+            st.metric("Indice sédimentaire moyen", f"{avg_sed:.3f}", f"{trend:+.1f}%",
+                      delta_color="inverse" if trend > 0 else "normal")
+            metrics_to_show.append(("Sédiments", avg_sed, trend))
     
     with cols[2]:
-        if analyze_erosion:
-            erosion_risk = "⚠️" if stats['high'] > 5 else "✅" if stats['high'] < 2 else "⚠️"
-            high_erosion_percent = (stats['high'] / stats['total'] * 100) if stats['total'] > 0 else 0
-            st.metric(
-                f"Risque érosion {erosion_risk}",
-                f"{high_erosion_percent:.1f}%",
-                f"{stats['high']:.1f} km²",
-                delta_color="inverse"
-            )
-            metrics_to_show.append(("Érosion forte", high_erosion_percent, None))
+        if analyze_erosion and stats is not None:
+            high_pct = (stats['high'] / stats['total'] * 100) if stats['total'] > 0 else 0
+            st.metric("Érosion forte", f"{high_pct:.1f}%", f"{stats['high']:.1f} km²",
+                      delta_color="inverse")
+            metrics_to_show.append(("Érosion forte", high_pct, None))
     
     with cols[3]:
-        if analyze_lake and 'df_lake' in locals():
-            current_surface = df_lake['surface_km2'].iloc[-1] if not df_lake.empty else 0
-            surface_trend = df_lake.groupby('year')['surface_km2'].mean().pct_change().iloc[-1] * 100 if len(df_lake['year'].unique()) > 1 else 0
-            lake_status = "🔴" if current_surface < 30 else "🟡" if current_surface < 33 else "🟢"
-            st.metric(
-                f"Surface lac {lake_status}",
-                f"{current_surface:.1f} km²",
-                f"{surface_trend:+.1f}%" if not pd.isna(surface_trend) else "N/A",
-                delta_color="normal" if surface_trend >= 0 else "inverse"
-            )
-            metrics_to_show.append(("Surface lac", current_surface, surface_trend))
+        if analyze_lake and df_lake is not None and not df_lake.empty:
+            current = df_lake['surface_km2'].iloc[-1]
+            yearly_lake = df_lake.groupby('year')['surface_km2'].mean()
+            if len(yearly_lake) > 1:
+                trend = (yearly_lake.iloc[-1] - yearly_lake.iloc[0]) / yearly_lake.iloc[0] * 100
+            else:
+                trend = 0
+            status = "🔴" if current < 30 else "🟡" if current < 33 else "🟢"
+            st.metric(f"Surface lac {status}", f"{current:.1f} km²", f"{trend:+.1f}%",
+                      delta_color="normal" if trend >= 0 else "inverse")
+            metrics_to_show.append(("Surface lac", current, trend))
     
     with cols[4]:
-        if analyze_lavakas and 'df_lavakas' in locals() and not df_lavakas.empty:
-            avg_lavakas = df_lavakas['area_km2'].mean()
-            lavakas_trend = df_lavakas.groupby('year')['area_km2'].mean().pct_change().iloc[-1] * 100 if len(df_lavakas['year'].unique()) > 1 else 0
-            st.metric(
-                "Surface lavakas moyenne",
-                f"{avg_lavakas:.2f} km²",
-                f"{lavakas_trend:+.1f}%" if not pd.isna(lavakas_trend) else "N/A",
-                delta_color="inverse" if lavakas_trend >= 0 else "normal"
-            )
-            metrics_to_show.append(("Lavakas", avg_lavakas, lavakas_trend))
+        if analyze_lavakas and df_lavakas is not None and not df_lavakas.empty:
+            avg_lav = df_lavakas['area_km2'].mean()
+            yearly_lav = df_lavakas.groupby('year')['area_km2'].mean()
+            if len(yearly_lav) > 1:
+                trend = (yearly_lav.iloc[-1] - yearly_lav.iloc[0]) / yearly_lav.iloc[0] * 100
+            else:
+                trend = 0
+            st.metric("Surface lavakas moyenne", f"{avg_lav:.2f} km²", f"{trend:+.1f}%",
+                      delta_color="inverse" if trend > 0 else "normal")
+            metrics_to_show.append(("Lavakas", avg_lav, trend))
 
-    # 2. VISUALISATIONS INTÉGRÉES
+    # 2. VISUALISATIONS INTÉGRÉES (subplots)
     st.subheader("📊 Visualisations synthétiques")
     
-    # Créer des sous-graphiques pour différentes analyses
+    from plotly.subplots import make_subplots
+    import plotly.graph_objects as go
+    
     fig = make_subplots(
         rows=3, cols=2,
         subplot_titles=(
@@ -3383,368 +3382,174 @@ def create_comprehensive_dashboard():
         ]
     )
     
-    # Graphique 1: NDVI vs Sédiments (ligne double)
-    if analyze_ndvi and analyze_sediment:
-        merged_data = pd.merge(df_ndvi, df_sediment, on=['year', 'month'], suffixes=('_ndvi', '_sed'))
-        merged_data['date'] = pd.to_datetime(merged_data['year'].astype(str) + '-' + merged_data['month'].astype(str) + '-01')
-        
-        # NDVI
-        fig.add_trace(
-            go.Scatter(
-                x=merged_data['date'],
-                y=merged_data['surface_km2_ndvi'],
-                mode='lines',
-                name='Surface végétale (km²)',
-                line=dict(color='green', width=2),
-                yaxis='y'
-            ),
-            row=1, col=1
-        )
-        
-        # Sédiments (axe secondaire)
-        fig.add_trace(
-            go.Scatter(
-                x=merged_data['date'],
-                y=merged_data['sediment_index'],
-                mode='lines',
-                name='Indice sédimentaire',
-                line=dict(color='brown', width=2, dash='dot'),
-                yaxis='y2'
-            ),
-            row=1, col=1
-        )
-        
-        # NOUVEAU CODE (CORRIGÉ) :
-        fig.update_layout(
-            yaxis=dict(title="Surface végétale (km²)", title_font=dict(color="green")),  # title_font
-            yaxis2=dict(
-                title="Indice sédimentaire", 
-                title_font=dict(color="brown"),  # title_font
-                overlaying="y",
-                side="right"
+    # Graphique 1 : NDVI vs Sédiments (double axe)
+    if analyze_ndvi and analyze_sediment and df_ndvi is not None and df_sediment is not None:
+        if not df_ndvi.empty and not df_sediment.empty:
+            merged = pd.merge(df_ndvi, df_sediment, on=['year', 'month'], suffixes=('_ndvi', '_sed'))
+            merged['date'] = pd.to_datetime(merged['year'].astype(str) + '-' + merged['month'].astype(str) + '-01')
+            fig.add_trace(go.Scatter(x=merged['date'], y=merged['surface_km2_ndvi'], mode='lines',
+                                     name='Surface végétale (km²)', line=dict(color='green', width=2)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=merged['date'], y=merged['sediment_index'], mode='lines',
+                                     name='Indice sédimentaire', line=dict(color='brown', width=2, dash='dot'),
+                                     yaxis='y2'), row=1, col=1)
+            fig.update_layout(
+                yaxis=dict(title="Surface végétale (km²)", title_font=dict(color="green")),
+                yaxis2=dict(title="Indice sédimentaire", title_font=dict(color="brown"),
+                            overlaying="y", side="right")
             )
-        )
     
-    # Graphique 2: Surface du lac
-    if analyze_lake and 'df_lake' in locals():
+    # Graphique 2 : Surface du lac
+    if analyze_lake and df_lake is not None and not df_lake.empty:
         df_lake['date'] = pd.to_datetime(df_lake['year'].astype(str) + '-' + df_lake['month'].astype(str) + '-01')
-        
-        fig.add_trace(
-            go.Scatter(
-                x=df_lake['date'],
-                y=df_lake['surface_km2'],
-                mode='lines+markers',
-                name='Surface lac',
-                line=dict(color='blue', width=3),
-                marker=dict(size=6),
-                fill='tozeroy',
-                fillcolor='rgba(0, 100, 255, 0.1)'
-            ),
-            row=1, col=2
-        )
-        
-        # Ligne de référence (surface normale)
-        fig.add_hline(
-            y=LAKE_REFERENCE_AREA_KM2,
-            line_dash="dash",
-            line_color="red",
-            annotation_text=f"Surface de référence: {LAKE_REFERENCE_AREA_KM2} km²",
-            row=1, col=2
-        )
+        fig.add_trace(go.Scatter(x=df_lake['date'], y=df_lake['surface_km2'], mode='lines+markers',
+                                 name='Surface lac', line=dict(color='blue', width=3),
+                                 fill='tozeroy', fillcolor='rgba(0,100,255,0.1)'), row=1, col=2)
+        fig.add_hline(y=LAKE_REFERENCE_AREA_KM2, line_dash="dash", line_color="red",
+                      annotation_text=f"Référence: {LAKE_REFERENCE_AREA_KM2} km²", row=1, col=2)
     
-    # Graphique 3: Zones d'érosion (graphique à barres empilées)
-    if analyze_erosion:
-        erosion_data = {
+    # Graphique 3 : Zones d'érosion (barres)
+    if analyze_erosion and stats is not None:
+        erosion_df = pd.DataFrame({
             'Type': ['Faible', 'Modérée', 'Forte'],
             'Surface (km²)': [stats['low'], stats['moderate'], stats['high']],
-            'Pourcentage': [
-                (stats['low'] / stats['total'] * 100) if stats['total'] > 0 else 0,
-                (stats['moderate'] / stats['total'] * 100) if stats['total'] > 0 else 0,
-                (stats['high'] / stats['total'] * 100) if stats['total'] > 0 else 0
-            ],
+            'Pourcentage': [stats['low']/stats['total']*100 if stats['total']>0 else 0,
+                            stats['moderate']/stats['total']*100 if stats['total']>0 else 0,
+                            stats['high']/stats['total']*100 if stats['total']>0 else 0],
             'Couleur': ['green', 'yellow', 'red']
-        }
-        
-        erosion_df = pd.DataFrame(erosion_data)
-        
-        fig.add_trace(
-            go.Bar(
-                x=erosion_df['Type'],
-                y=erosion_df['Surface (km²)'],
-                name='Zones d\'érosion',
-                marker_color=erosion_df['Couleur'],
-                text=erosion_df['Pourcentage'].apply(lambda x: f'{x:.1f}%'),
-                textposition='auto',
-                opacity=0.7
-            ),
-            row=2, col=1
-        )
+        })
+        fig.add_trace(go.Bar(x=erosion_df['Type'], y=erosion_df['Surface (km²)'],
+                             marker_color=erosion_df['Couleur'],
+                             text=erosion_df['Pourcentage'].apply(lambda x: f'{x:.1f}%'),
+                             textposition='auto', name='Zones d\'érosion'), row=2, col=1)
     
-    # Graphique 4: Lavakas
-    if analyze_lavakas and 'df_lavakas' in locals() and not df_lavakas.empty:
+    # Graphique 4 : Lavakas (surface + nombre)
+    if analyze_lavakas and df_lavakas is not None and not df_lavakas.empty:
         df_lavakas['date'] = pd.to_datetime(df_lavakas['year'].astype(str) + '-' + df_lavakas['month'].astype(str) + '-01')
-        
-        fig.add_trace(
-            go.Scatter(
-                x=df_lavakas['date'],
-                y=df_lavakas['area_km2'],
-                mode='lines+markers',
-                name='Surface lavakas',
-                line=dict(color='sienna', width=2),
-                marker=dict(size=8, symbol='diamond')
-            ),
-            row=2, col=2
-        )
-        
-        fig.add_trace(
-            go.Bar(
-                x=df_lavakas['date'],
-                y=df_lavakas['num_lavakas'],
-                name='Nombre lavakas',
-                marker_color='lightcoral',
-                opacity=0.5,
-                yaxis='y2'
-            ),
-            row=2, col=2
-        )
-        
-        # Configuration double axe pour lavakas
-        # NOUVEAU CODE (CORRIGÉ) :
+        fig.add_trace(go.Scatter(x=df_lavakas['date'], y=df_lavakas['area_km2'], mode='lines+markers',
+                                 name='Surface lavakas', line=dict(color='sienna', width=2)), row=2, col=2)
+        fig.add_trace(go.Bar(x=df_lavakas['date'], y=df_lavakas['num_lavakas'],
+                             name='Nombre lavakas', marker_color='lightcoral', opacity=0.5,
+                             yaxis='y2'), row=2, col=2)
         fig.update_layout(
-            yaxis3=dict(title="Surface (km²)", title_font=dict(color="sienna")),  # title_font
-            yaxis4=dict(
-                title="Nombre", 
-                title_font=dict(color="lightcoral"),  # title_font
-                overlaying="y3",
-                side="right"
-            )
-)
+            yaxis3=dict(title="Surface (km²)", title_font=dict(color="sienna")),
+            yaxis4=dict(title="Nombre", title_font=dict(color="lightcoral"),
+                        overlaying="y3", side="right")
+        )
     
-    # Graphique 5: Matrice de corrélations
-    if analyze_ndvi and analyze_sediment and analyze_lake:
-        # Préparer les données pour la corrélation
-        correlation_data = []
-        
-        # NDVI
-        if not df_ndvi.empty:
-            correlation_data.append(('NDVI', df_ndvi['surface_km2'].values))
-        
-        # Sédiments
-        if not df_sediment.empty:
-            correlation_data.append(('Sédiments', df_sediment['sediment_index'].values))
-        
-        # Lac
-        if 'df_lake' in locals() and not df_lake.empty:
-            correlation_data.append(('Surface lac', df_lake['surface_km2'].values))
-        
-        # Lavakas
-        if analyze_lavakas and 'df_lavakas' in locals() and not df_lavakas.empty:
-            correlation_data.append(('Lavakas', df_lavakas['area_km2'].values))
-        
-        # Créer la matrice de corrélation
-        if len(correlation_data) >= 2:
-            # Pour l'exemple, montrer un scatter plot NDVI vs Surface lac
-            if analyze_ndvi and 'df_lake' in locals():
-                merged = pd.merge(df_ndvi, df_lake, on=['year', 'month'], suffixes=('_ndvi', '_lake'))
-                
-                fig.add_trace(
-                    go.Scatter(
-                        x=merged['surface_km2_ndvi'],
-                        y=merged['surface_km2_lake'],
-                        mode='markers',
-                        name='NDVI vs Surface lac',
-                        marker=dict(
-                            size=10,
-                            color=merged['month'],
-                            colorscale='Viridis',
-                            showscale=True,
-                            colorbar=dict(title="Mois")
-                        ),
-                        text=[f"Mois {m}" for m in merged['month']],
-                        hovertemplate="NDVI: %{x:.2f} km²<br>Lac: %{y:.2f} km²<br>Mois: %{text}"
-                    ),
-                    row=3, col=1
-                )
-                
-                # Ajouter ligne de régression
+    # Graphique 5 : Corrélation NDVI vs Surface lac
+    if analyze_ndvi and analyze_lake and df_ndvi is not None and df_lake is not None:
+        if not df_ndvi.empty and not df_lake.empty:
+            merged = pd.merge(df_ndvi, df_lake, on=['year', 'month'], suffixes=('_ndvi', '_lake'))
+            if not merged.empty:
+                fig.add_trace(go.Scatter(x=merged['surface_km2_ndvi'], y=merged['surface_km2_lake'],
+                                         mode='markers', name='NDVI vs Lac',
+                                         marker=dict(size=10, color=merged['month'], colorscale='Viridis',
+                                                     showscale=True, colorbar=dict(title="Mois")),
+                                         text=[f"Mois {m}" for m in merged['month']]), row=3, col=1)
                 if len(merged) > 1:
-                    slope, intercept, r_value, p_value, std_err = stats.linregress(
-                        merged['surface_km2_ndvi'], 
-                        merged['surface_km2_lake']
-                    )
+                    from scipy.stats import linregress
+                    slope, intercept, r, _, _ = linregress(merged['surface_km2_ndvi'], merged['surface_km2_lake'])
                     x_range = [merged['surface_km2_ndvi'].min(), merged['surface_km2_ndvi'].max()]
-                    y_range = [slope * x + intercept for x in x_range]
-                    
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x_range,
-                            y=y_range,
-                            mode='lines',
-                            name=f'Régression (R²={r_value**2:.3f})',
-                            line=dict(color='red', width=2, dash='dash')
-                        ),
-                        row=3, col=1
-                    )
+                    fig.add_trace(go.Scatter(x=x_range, y=[slope*x+intercept for x in x_range],
+                                             mode='lines', name=f'Régression (R²={r**2:.3f})',
+                                             line=dict(color='red', width=2, dash='dash')), row=3, col=1)
     
-    # Graphique 6: Indicateurs synthétiques (radar chart ou barres horizontales)
+    # Graphique 6 : Indicateurs synthétiques (radar ou barres)
     if metrics_to_show:
         indicators = pd.DataFrame(metrics_to_show, columns=['Indicateur', 'Valeur', 'Tendance'])
-        
-        # Normaliser les valeurs pour le graphique radar
         if len(indicators) > 2:
-            # Graphique radar
-            fig.add_trace(
-                go.Scatterpolar(
-                    r=indicators['Valeur'].values,
-                    theta=indicators['Indicateur'].values,
-                    fill='toself',
-                    name='Indicateurs',
-                    line=dict(color='blue'),
-                    opacity=0.6
-                ),
-                row=3, col=2
-            )
+            fig.add_trace(go.Scatterpolar(r=indicators['Valeur'], theta=indicators['Indicateur'],
+                                          fill='toself', name='Indicateurs', line=dict(color='blue')),
+                          row=3, col=2)
         else:
-            # Barres horizontales pour peu d'indicateurs
-            fig.add_trace(
-                go.Bar(
-                    y=indicators['Indicateur'],
-                    x=indicators['Valeur'],
-                    name='Valeurs',
-                    orientation='h',
-                    marker_color=['green', 'brown', 'red', 'blue', 'sienna'][:len(indicators)]
-                ),
-                row=3, col=2
-            )
+            fig.add_trace(go.Bar(y=indicators['Indicateur'], x=indicators['Valeur'], orientation='h',
+                                 marker_color=['green','brown','red','blue','sienna'][:len(indicators)]),
+                          row=3, col=2)
     
     # Mise en page finale
-    fig.update_layout(
-        height=1200,
-        showlegend=True,
-        template='plotly_white',
-        title_text="Tableau de bord synthétique - Bassin versant Lac Itasy",
-        title_font_size=20
-    )
-    
-    # Mise à jour des axes
+    fig.update_layout(height=1200, showlegend=True, template='plotly_white',
+                      title_text="Tableau de bord synthétique - Bassin versant Lac Itasy",
+                      title_font_size=20)
     fig.update_xaxes(title_text="Date", row=1, col=1)
     fig.update_xaxes(title_text="Date", row=1, col=2)
     fig.update_xaxes(title_text="Type d'érosion", row=2, col=1)
     fig.update_xaxes(title_text="Date", row=2, col=2)
     fig.update_xaxes(title_text="Surface végétale (km²)", row=3, col=1)
-    
     fig.update_yaxes(title_text="Surface (km²)", row=1, col=1)
     fig.update_yaxes(title_text="Surface (km²)", row=1, col=2)
     fig.update_yaxes(title_text="Surface (km²)", row=2, col=1)
     fig.update_yaxes(title_text="Surface (km²)", row=2, col=2)
     fig.update_yaxes(title_text="Surface lac (km²)", row=3, col=1)
     fig.update_yaxes(title_text="Valeur", row=3, col=2)
-    
     st.plotly_chart(fig, use_container_width=True)
     
-    # 3. ANALYSE DES TENDANCES ET CORRÉLATIONS
+    # 3. ANALYSE DES TENDANCES (régressions linéaires)
     st.subheader("📈 Analyse des tendances et corrélations")
-    
+    from scipy.stats import linregress
     trend_cols = st.columns(4)
     
     with trend_cols[0]:
-        if analyze_ndvi and not df_ndvi.empty:
-            # Tendance NDVI
-            yearly_ndvi = df_ndvi.groupby('year')['surface_km2'].mean().reset_index()
-            if len(yearly_ndvi) > 1:
-                slope_ndvi, _, r_ndvi, p_ndvi, _ = stats.linregress(
-                    yearly_ndvi['year'], 
-                    yearly_ndvi['surface_km2']
-                )
-                st.metric(
-                    "Tendance NDVI annuelle",
-                    f"{slope_ndvi:.3f} km²/an",
-                    f"R²={r_ndvi**2:.3f}",
-                    delta_color="normal" if slope_ndvi > 0 else "inverse"
-                )
+        if analyze_ndvi and df_ndvi is not None and not df_ndvi.empty:
+            yearly = df_ndvi.groupby('year')['surface_km2'].mean().reset_index()
+            if len(yearly) > 1:
+                slope, _, r, _, _ = linregress(yearly['year'], yearly['surface_km2'])
+                st.metric("Tendance NDVI annuelle", f"{slope:.3f} km²/an", f"R²={r**2:.3f}",
+                          delta_color="normal" if slope > 0 else "inverse")
     
     with trend_cols[1]:
-        if analyze_lake and 'df_lake' in locals() and not df_lake.empty:
-            # Tendance surface lac
-            yearly_lake = df_lake.groupby('year')['surface_km2'].mean().reset_index()
-            if len(yearly_lake) > 1:
-                slope_lake, _, r_lake, p_lake, _ = stats.linregress(
-                    yearly_lake['year'], 
-                    yearly_lake['surface_km2']
-                )
-                st.metric(
-                    "Tendance surface lac",
-                    f"{slope_lake:.3f} km²/an",
-                    f"R²={r_lake**2:.3f}",
-                    delta_color="normal" if slope_lake > 0 else "inverse"
-                )
+        if analyze_lake and df_lake is not None and not df_lake.empty:
+            yearly = df_lake.groupby('year')['surface_km2'].mean().reset_index()
+            if len(yearly) > 1:
+                slope, _, r, _, _ = linregress(yearly['year'], yearly['surface_km2'])
+                st.metric("Tendance surface lac", f"{slope:.3f} km²/an", f"R²={r**2:.3f}",
+                          delta_color="normal" if slope > 0 else "inverse")
     
     with trend_cols[2]:
-        if analyze_sediment and not df_sediment.empty:
-            # Tendance sédiments
-            yearly_sed = df_sediment.groupby('year')['sediment_index'].mean().reset_index()
-            if len(yearly_sed) > 1:
-                slope_sed, _, r_sed, p_sed, _ = stats.linregress(
-                    yearly_sed['year'], 
-                    yearly_sed['sediment_index']
-                )
-                st.metric(
-                    "Tendance sédiments",
-                    f"{slope_sed:.4f}/an",
-                    f"R²={r_sed**2:.3f}",
-                    delta_color="inverse" if slope_sed > 0 else "normal"
-                )
+        if analyze_sediment and df_sediment is not None and not df_sediment.empty:
+            yearly = df_sediment.groupby('year')['sediment_index'].mean().reset_index()
+            if len(yearly) > 1:
+                slope, _, r, _, _ = linregress(yearly['year'], yearly['sediment_index'])
+                st.metric("Tendance sédiments", f"{slope:.4f}/an", f"R²={r**2:.3f}",
+                          delta_color="inverse" if slope > 0 else "normal")
     
     with trend_cols[3]:
-        if analyze_ndvi and analyze_sediment:
-            # Corrélation NDVI-Sédiments
-            merged = pd.merge(df_ndvi, df_sediment, on=['year', 'month'])
-            if not merged.empty:
-                correlation = merged['surface_km2'].corr(merged['sediment_index'])
-                correlation_status = "✅ Forte" if abs(correlation) > 0.7 else "⚠️ Modérée" if abs(correlation) > 0.3 else "ℹ️ Faible"
-                st.metric(
-                    "Corrélation NDVI-Sédiments",
-                    f"{correlation:.3f}",
-                    correlation_status,
-                    help="Négative attendue: végétation ↘️ = sédiments ↗️"
-                )
+        if analyze_ndvi and analyze_sediment and df_ndvi is not None and df_sediment is not None:
+            if not df_ndvi.empty and not df_sediment.empty:
+                merged = pd.merge(df_ndvi, df_sediment, on=['year', 'month'])
+                if not merged.empty:
+                    corr = merged['surface_km2'].corr(merged['sediment_index'])
+                    status = "✅ Forte" if abs(corr) > 0.7 else "⚠️ Modérée" if abs(corr) > 0.3 else "ℹ️ Faible"
+                    st.metric("Corrélation NDVI-Sédiments", f"{corr:.3f}", status,
+                              help="Négative attendue : végétation ↘️ = sédiments ↗️")
     
     # 4. RECOMMANDATIONS SYNTHÉTIQUES
     st.subheader("💡 Recommandations synthétiques")
-    
-    # Évaluer l'état général
     recommendations = []
     
-    # Évaluation NDVI
-    if analyze_ndvi and not df_ndvi.empty:
-        current_ndvi = df_ndvi['surface_km2'].iloc[-1] if not df_ndvi.empty else 0
-        avg_ndvi = df_ndvi['surface_km2'].mean()
-        
-        if current_ndvi < avg_ndvi * 0.8:
+    if analyze_ndvi and df_ndvi is not None and not df_ndvi.empty:
+        current = df_ndvi['surface_km2'].iloc[-1]
+        avg = df_ndvi['surface_km2'].mean()
+        if current < avg * 0.8:
             recommendations.append(("⚠️", "Couverture végétale en baisse", "Replanter les zones dégradées"))
-        elif current_ndvi > avg_ndvi * 1.2:
+        elif current > avg * 1.2:
             recommendations.append(("✅", "Bonne couverture végétale", "Maintenir les pratiques actuelles"))
     
-    # Évaluation érosion
-    if analyze_erosion:
-        if stats['high'] > stats['total'] * 0.15:  # Plus de 15% de forte érosion
+    if analyze_erosion and stats is not None:
+        if stats['high'] > stats['total'] * 0.15:
             recommendations.append(("🔴", "Risque érosion élevé", "Prioriser les mesures anti-érosives"))
-        elif stats['high'] > stats['total'] * 0.05:  # 5-15% de forte érosion
+        elif stats['high'] > stats['total'] * 0.05:
             recommendations.append(("🟡", "Risque érosion modéré", "Surveiller et planifier des interventions"))
     
-    # Évaluation lac
-    if analyze_lake and 'df_lake' in locals():
-        current_lake = df_lake['surface_km2'].iloc[-1] if not df_lake.empty else 0
-        if current_lake < LAKE_REFERENCE_AREA_KM2 * 0.9:
+    if analyze_lake and df_lake is not None and not df_lake.empty:
+        current = df_lake['surface_km2'].iloc[-1]
+        if current < LAKE_REFERENCE_AREA_KM2 * 0.9:
             recommendations.append(("💧", "Surface lac réduite", "Évaluer la consommation d'eau et l'ensablement"))
     
-    # Évaluation lavakas
-    if analyze_lavakas and 'df_lavakas' in locals() and not df_lavakas.empty:
-        lavakas_growth = df_lavakas['area_km2'].pct_change().mean() * 100
-        if lavakas_growth > 5:
+    if analyze_lavakas and df_lavakas is not None and not df_lavakas.empty:
+        growth = df_lavakas['area_km2'].pct_change().mean() * 100
+        if growth > 5:
             recommendations.append(("🕳️", "Lavakas en expansion", "Contrôler l'érosion ravinante"))
     
-    # Afficher les recommandations
     if recommendations:
         for icon, title, desc in recommendations:
             st.markdown(f"""
@@ -3756,89 +3561,33 @@ def create_comprehensive_dashboard():
     else:
         st.success("✅ L'état général du bassin versant semble satisfaisant. Continuez les bonnes pratiques !")
     
-    # 5. TÉLÉCHARGEMENT SYNTHÉTIQUE
+    # 5. EXPORT DES DONNÉES SYNTHÉTIQUES
     st.subheader("💾 Export des données synthétiques")
-    
     if st.button("📥 Générer rapport synthétique"):
-        # Créer un DataFrame synthétique
         synth_data = {}
-        
-        if analyze_ndvi and not df_ndvi.empty:
+        if analyze_ndvi and df_ndvi is not None and not df_ndvi.empty:
             synth_data['NDVI_moyen_km2'] = [df_ndvi['surface_km2'].mean()]
-            synth_data['Tendance_NDVI_%'] = [df_ndvi.groupby('year')['surface_km2'].mean().pct_change().iloc[-1] * 100]
-        
-        if analyze_sediment and not df_sediment.empty:
+            yearly = df_ndvi.groupby('year')['surface_km2'].mean()
+            if len(yearly) > 1:
+                synth_data['Tendance_NDVI_%'] = [(yearly.iloc[-1] - yearly.iloc[0]) / yearly.iloc[0] * 100]
+        if analyze_sediment and df_sediment is not None and not df_sediment.empty:
             synth_data['Indice_sediment_moyen'] = [df_sediment['sediment_index'].mean()]
-        
-        if analyze_erosion:
+        if analyze_erosion and stats is not None:
             synth_data['Erosion_forte_km2'] = [stats['high']]
-            synth_data['Erosion_forte_%'] = [(stats['high'] / stats['total'] * 100)]
-        
-        if analyze_lake and 'df_lake' in locals():
+            synth_data['Erosion_forte_%'] = [(stats['high'] / stats['total'] * 100) if stats['total'] > 0 else 0]
+        if analyze_lake and df_lake is not None and not df_lake.empty:
             synth_data['Surface_lac_moyenne'] = [df_lake['surface_km2'].mean()]
             synth_data['Surface_lac_actuelle'] = [df_lake['surface_km2'].iloc[-1]]
-        
-        if analyze_lavakas and 'df_lavakas' in locals() and not df_lavakas.empty:
+        if analyze_lavakas and df_lavakas is not None and not df_lavakas.empty:
             synth_data['Lavakas_moyen_km2'] = [df_lavakas['area_km2'].mean()]
-        
-        # Créer et télécharger
-        synth_df = pd.DataFrame(synth_data)
-        csv_synth = synth_df.to_csv(index=False)
-        
-        st.download_button(
-            label="📥 Télécharger le rapport synthétique",
-            data=csv_synth,
-            file_name=f"rapport_synthetique_bassin_{years[0]}_{years[-1]}.csv",
-            mime="text/csv"
-        )
-
-    # Remplacer la section tableau de bord existante par :
-    # ==========================================================
-    # TABLEAU DE BORD SYNTHETIQUE
-    # ==========================================================
-    st.header("📊 Tableau de bord synthétique")
-
-    # Vérifier quelles analyses ont été effectuées
-    analyses_done = []
-    if analyze_ndvi and 'df_ndvi' in locals() and not df_ndvi.empty:
-        analyses_done.append("Végétation (NDVI)")
-    if analyze_sediment and 'df_sediment' in locals() and not df_sediment.empty:
-        analyses_done.append("Sédiments")
-    if analyze_erosion and 'stats' in locals():
-        analyses_done.append("Érosion")
-    if analyze_lake and 'df_lake' in locals() and not df_lake.empty:
-        analyses_done.append("Surface lac")
-    if analyze_lavakas and 'df_lavakas' in locals() and not df_lavakas.empty:
-        analyses_done.append("Lavakas")
-    if analyze_meteo and 'df_meteo' in locals() and not df_meteo.empty:
-        analyses_done.append("Météo")
-
-    if len(analyses_done) >= 2:
-        # Afficher le dashboard complet
-        create_comprehensive_dashboard()
-    else:
-        st.warning(f"Au moins 2 analyses doivent être complétées pour le dashboard synthétique. Analyses disponibles: {', '.join(analyses_done)}")
-        
-        # Afficher quand même les métriques disponibles
-        st.subheader("📈 Indicateurs disponibles")
-        
-        cols = st.columns(min(3, len(analyses_done)))
-        
-        for i, analysis in enumerate(analyses_done):
-            with cols[i % 3]:
-                if analysis == "Végétation (NDVI)":
-                    avg_val = df_ndvi['surface_km2'].mean()
-                    st.metric("Surface végétale moyenne", f"{avg_val:.1f} km²")
-                elif analysis == "Sédiments":
-                    avg_val = df_sediment['sediment_index'].mean()
-                    st.metric("Indice sédimentaire moyen", f"{avg_val:.3f}")
-                elif analysis == "Érosion":
-                    high_percent = (stats['high'] / stats['total'] * 100) if stats['total'] > 0 else 0
-                    st.metric("Érosion forte", f"{high_percent:.1f}%")
-                elif analysis == "Surface lac":
-                    current_val = df_lake['surface_km2'].iloc[-1] if not df_lake.empty else 0
-                    st.metric("Surface actuelle", f"{current_val:.1f} km²")
-        
+        if synth_data:
+            synth_df = pd.DataFrame(synth_data)
+            st.download_button("📥 Télécharger le rapport synthétique",
+                               synth_df.to_csv(index=False),
+                               f"rapport_synthetique_bassin_{years[0]}_{years[-1]}.csv",
+                               "text/csv")
+        else:
+            st.warning("Aucune donnée à exporter.")
 
 def show_welcome_page():
     """Affiche la page d'accueil."""
