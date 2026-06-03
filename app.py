@@ -3501,11 +3501,14 @@ def create_comprehensive_dashboard(df_ndvi, df_sediment, stats, df_lake, df_lava
     # Graphique 1 : NDVI vs Sédiments (double axe)
     if analyze_ndvi and analyze_sediment and df_ndvi is not None and df_sediment is not None:
         if not df_ndvi.empty and not df_sediment.empty:
+            # Fusion avec suffixes explicites
             merged = pd.merge(df_ndvi, df_sediment, on=['year', 'month'], suffixes=('_ndvi', '_sed'))
             merged['date'] = pd.to_datetime(merged['year'].astype(str) + '-' + merged['month'].astype(str) + '-01')
+            
+            # Utilisation des bons noms de colonnes
             fig.add_trace(go.Scatter(x=merged['date'], y=merged['surface_km2_ndvi'], mode='lines',
                                      name='Surface végétale (km²)', line=dict(color='green', width=2)), row=1, col=1)
-            fig.add_trace(go.Scatter(x=merged['date'], y=merged['sediment_index'], mode='lines',
+            fig.add_trace(go.Scatter(x=merged['date'], y=merged['sediment_index_sed'], mode='lines',
                                      name='Indice sédimentaire', line=dict(color='brown', width=2, dash='dot'),
                                      yaxis='y2'), row=1, col=1)
             fig.update_layout(
