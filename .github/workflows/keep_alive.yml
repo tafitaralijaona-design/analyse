@@ -2,7 +2,7 @@ name: Keep Streamlit App Alive
 on:
   schedule:
     # Toutes les 10 heures (minute 0 des heures 0,10,20 – UTC)
-    - cron: '0 */10 * * *'
+    - cron: '0 */8 * * *'
   workflow_dispatch:   # Permet un déclenchement manuel
 
 jobs:
