@@ -24,6 +24,12 @@ import json
 from dateutil.relativedelta import relativedelta
 from typing import Optional, Tuple, Dict, Any, List
 from branca.element import Template, MacroElement
+import base64
+
+try:
+    from fpdf import FPDF
+except ImportError:
+    FPDF = None
 
 # ==========================================================
 # CONFIGURATION
@@ -297,6 +303,12 @@ def monthly_sediment_index(year: int, month: int, watershed_geom: ee.Geometry, a
         slope = ee.Terrain.slope(dem)
         LS = slope.divide(30).clamp(0, 1).rename('LS')
         
+        # === AJOUT FACTEUR K ===
+        soil_sand = ee.Image("OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1A1A_M/v02").select('b0')
+        soil_clay = ee.Image("OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02").select('b0')
+        K_factor = soil_clay.divide(soil_sand.add(1)).divide(100).clamp(0, 0.5).rename('K').clip(watershed_geom)
+        # =======================
+        
         s2 = (
             ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
             .filterDate(start, end)
@@ -318,7 +330,7 @@ def monthly_sediment_index(year: int, month: int, watershed_geom: ee.Geometry, a
         else:
             rainfall_val = rainfall
         
-        sediment_index = ee.Image.constant(rainfall_val).multiply(LS).multiply(
+        sediment_index = ee.Image.constant(rainfall_val).multiply(LS).multiply(K_factor).multiply(
             ee.Image(1).subtract(ndvi)
         )
         
@@ -596,13 +608,13 @@ def detect_lavakas(
         ).rename("lavaka_score")
 
         # ==========================
-        # Contraintes fortes
+        # Contraintes fortes (Améliorées)
         # ==========================
         bare_soil_mask = bsi.gt(0.10)
 
-        slope_mask = slope.gt(10)
+        slope_mask = slope.gt(15)  # Stricte : Pente > 15 degrés
 
-        vegetation_mask = ndvi.lt(0.35)
+        vegetation_mask = ndvi.lt(0.25)  # Stricte : Éliminer jachères plates
 
         curvature_mask = curvature.lt(-2)
 
@@ -2162,6 +2174,56 @@ def create_meteo_dashboard(meteo_stats: Dict, trends: Dict, forecast_data: Optio
 # ==========================================================
 # INTERFACE PRINCIPALE
 # ==========================================================
+def generate_pdf_report(df_ndvi, df_sediment):
+    """Génère un rapport PDF avec fpdf."""
+    if FPDF is None:
+        return None
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=15, style='B')
+    pdf.cell(200, 10, txt="Rapport d'Analyse du Lac Itasy", ln=True, align='C')
+    pdf.set_font("Arial", size=11)
+    pdf.ln(10)
+    pdf.cell(200, 10, txt=f"Date du rapport : {datetime.now().strftime('%Y-%m-%d')}", ln=True)
+    pdf.ln(10)
+    
+    if df_ndvi is not None and not df_ndvi.empty:
+        pdf.set_font("Arial", size=13, style='B')
+        pdf.cell(200, 10, txt="Statistiques de Végétation (NDVI)", ln=True)
+        pdf.set_font("Arial", size=11)
+        mean_veg = df_ndvi['veg_area_km2'].mean()
+        pdf.cell(200, 10, txt=f"Surface végétale saine moyenne : {mean_veg:.2f} km2", ln=True)
+        pdf.ln(5)
+
+    if df_sediment is not None and not df_sediment.empty:
+        pdf.set_font("Arial", size=13, style='B')
+        pdf.cell(200, 10, txt="Indice d'Érosion et Sédiments", ln=True)
+        pdf.set_font("Arial", size=11)
+        max_sed = df_sediment['sediment_index'].max()
+        pdf.cell(200, 10, txt=f"Indice sédimentaire maximum détecté : {max_sed:.2f}", ln=True)
+        pdf.ln(10)
+
+    pdf.cell(200, 10, txt="Généré automatiquement par l'IOHI GEE Dashboard.", ln=True)
+    
+    # Return as bytes
+    return pdf.output(dest='S').encode('latin-1')
+
+def check_ews_alerts(df_sediment, forecast_data):
+    """Vérifie les alertes précoces (EWS)."""
+    st.subheader("🚨 Système d'Alerte Précoce (EWS)")
+    if forecast_data and "daily" in forecast_data and df_sediment is not None and not df_sediment.empty:
+        current_risk = df_sediment['sediment_index'].iloc[-1]
+        next_week_rain = sum(forecast_data["daily"].get("precipitation_sum", [])[:7])
+        
+        if current_risk > 50.0 and next_week_rain > 50.0:
+            st.error(f"🔴 ALERTE ROUGE : Sol très vulnérable (Indice: {current_risk:.1f}) et forte pluie prévue ({next_week_rain:.1f} mm). Risque d'envasement critique !")
+        elif next_week_rain > 30.0:
+            st.warning(f"🟠 ALERTE ORANGE : Pluies modérées prévues ({next_week_rain:.1f} mm). Surveillance accrue conseillée.")
+        else:
+            st.success("🟢 NORMAL : Aucun risque sédimentaire majeur détecté à court terme.")
+    else:
+        st.info("Données insuffisantes pour évaluer les alertes EWS.")
+
 def main():
     """Fonction principale de l'application."""
     st.title("🌿 Analyse du Bassin Versant du Lac Itasy")
@@ -3377,6 +3439,11 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
     if analyze_lavakas and df_lavakas is not None and not df_lavakas.empty:
         analyses_count += 1
 
+    # === ALERTE PRÉCOCE (EWS) ===
+    if analyze_sediment and df_sediment is not None and not df_sediment.empty:
+        forecast_data = get_openmeteo_forecast(LAKE_ITASY_COORDS[0][1], LAKE_ITASY_COORDS[0][0])
+        check_ews_alerts(df_sediment, forecast_data)
+
     if analyses_count >= 2:
         create_comprehensive_dashboard(
             df_ndvi=df_ndvi,
@@ -3398,6 +3465,22 @@ def run_analysis(watershed_geom, aoi, watershed_gdf, years, ndvi_threshold,
     status_text.text("✅ Analyse terminée")
     st.balloons()
     st.success(f"✅ Analyse terminée pour la période {years[0]}-{years[-1]}")
+    
+    # === GÉNÉRATION DE RAPPORT PDF ===
+    st.markdown("---")
+    st.subheader("📄 Rapport Exportable")
+    if FPDF is not None:
+        pdf_bytes = generate_pdf_report(df_ndvi, df_sediment)
+        if pdf_bytes:
+            st.download_button(
+                label="📥 Télécharger le Rapport PDF Complet",
+                data=pdf_bytes,
+                file_name=f"Rapport_Itasy_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+    else:
+        st.info("💡 Librairie 'fpdf' non installée. Impossible de générer le rapport PDF. (Exécutez `pip install fpdf` pour l'activer).")
     
 # ==========================================================
 # TABLEAU DE BORD SYNTHETIQUE
